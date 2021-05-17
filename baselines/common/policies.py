@@ -118,6 +118,19 @@ class PolicyWithValue(object):
     def load(self, load_path):
         tf_util.load_state(load_path, sess=self.sess)
 
+    # JAG: Calculate gradient of policy wrt state (observation)
+    def adv_gradient(self, obs, reward, old_obs):
+        feed_dict = {self.X: adjust_shape(self.X, obs)}
+        # TODO: Move this penalty outside
+        adv_gamma = 1
+        # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
+        # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
+        loss = tf.reduce_mean(self.neglogp * (reward - self.vf)) \
+                + adv_gamma * tf.square(tf.reduce_mean(self.X - old_obs))
+        grads = tf.gradients(ys=loss, xs=self.X)
+
+        return self.sess.run(grads, feed_dict)
+
 def build_policy(env, policy_network, value_network=None,  normalize_observations=False, estimate_q=False, **policy_kwargs):
     if isinstance(policy_network, str):
         network_type = policy_network
