@@ -10,30 +10,42 @@ from baselines.ppo2.runner import Runner, sf01
 from .data_augs import Cutout_Color, Rand_Crop
 
 class RunnerWithAugs(Runner):
-    def __init__(self, *, env, model, nsteps, gamma, lam, data_aug="no_aug", is_train=True):
-        super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
+    def __init__(self, *, env, model, nsteps, gamma, lam, data_aug="no_aug",
+            is_train=True):
+        super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma,
+                lam=lam)
         self.data_aug = data_aug
         self.is_train = is_train
+
+        # TODO: Set adv as parameters in the future
+        self.is_adv = True
+        self.adv_steps = 1000
+        self.adv_lr = 0.001
+
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
                 self.aug_func = Cutout_Color(batch_size=self.obs.shape[0])
             elif self.data_aug == "crop":
-                self.aug_func = Rand_Crop(batch_size=self.obs.shape[0], sess=model.sess)
+                self.aug_func = Rand_Crop(batch_size=self.obs.shape[0],
+                        sess=model.sess)
             else:
                 raise ValueError("Invalid value for argument data_aug.")
             self.obs = self.aug_func.do_augmentation(self.obs)
 
     def run(self):
         # Here, we init the lists that will contain the mb of experiences
-        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
+        mb_obs, mb_rewards, mb_actions = [], [], []
+        mb_values, mb_dones, mb_neglogpacs = [],[],[]
 
         mb_states = self.states
         epinfos = []
-        # For n in range number of steps
+        # For n in range number of steps (Sample minibatch)
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
-            # We already have self.obs because Runner superclass run self.obs[:] = env.reset() on init
-            actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones)
+            # We already have self.obs because Runner superclass run
+            # self.obs[:] = env.reset() on init
+            actions, values, self.states, neglogpacs = self.model.step(
+                    self.obs, S=self.states, M=self.dones)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
@@ -73,13 +85,25 @@ class RunnerWithAugs(Runner):
             else:
                 nextnonterminal = 1.0 - mb_dones[t+1]
                 nextvalues = mb_values[t+1]
-            delta = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal - mb_values[t]
-            mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
+            delta = mb_rewards[t] \
+                    + self.gamma * nextvalues * nextnonterminal - mb_values[t]
+            mb_advs[t] = lastgaelam = delta \
+                    + self.gamma * self.lam * nextnonterminal * lastgaelam
+
+            # Skip if we do not use adversarial
+            if not self.is_adv: continue
+
+            obs = mb_obs[t].copy()
+            for it in range(self.adv_steps):
+                grads = self.model.adv_gradient(obs, mb_rewards[t], mb_obs[t])
+                obs -= self.adv_lr * grads
+            print(obs)
+
         mb_returns = mb_advs + mb_values
 
         if self.data_aug != 'no_aug' and self.is_train:
             self.aug_func.change_randomization_params_all()
             self.obs = self.aug_func.do_augmentation(obs)
 
-        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
-            mb_states, epinfos)
+        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
+            mb_neglogpacs)), mb_states, epinfos)
