@@ -117,9 +117,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
                 model._sync_param()
 
     # Instantiate the runner object
-    runner = RunnerWithAugs(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, data_aug=data_aug, is_train=mpi_rank_weight > 0)
+    runner = RunnerWithAugs(env=env, model=model, nsteps=nsteps, gamma=gamma,
+            lam=lam, data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
-        eval_runner = RunnerWithAugs(env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam, data_aug=data_aug, is_train=False)
+        eval_runner = RunnerWithAugs(env=eval_env, model=model, nsteps=nsteps,
+                gamma=gamma, lam=lam, data_aug=data_aug, is_train=False)
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:
@@ -149,7 +151,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         # Set the learning rate for training discriminator
         lr_disc = 1e-4
 
-        if update % log_interval == 0 and is_mpi_root: logger.info('Stepping environment...')
+        if update % log_interval == 0 and is_mpi_root: logger.info(
+                'Stepping environment...')
 
         if use_rand_conv and mpi_rank_weight > 0:
             model.sess.run(init_process)

@@ -63,6 +63,17 @@ class PolicyWithValue(object):
             self.vf = fc(vf_latent, 'vf', 1)
             self.vf = self.vf[:,0]
 
+        # TODO: Put gamma into parameters
+        adv_gamma = 1
+        self.reward = tf.placeholder(tf.float32, shape=self.vf.shape)
+        self.old_X = tf.placeholder(tf.float32, shape=self.X.shape)
+        # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
+        # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
+        self.loss = tf.reduce_mean(self.neglogp * (self.reward - self.vf)) \
+                + adv_gamma * tf.square(tf.reduce_mean(self.X - self.old_X))
+        # Gradient of loss wrt observation
+        self.grads = tf.gradients(ys=self.loss, xs=self.X)
+
     def _evaluate(self, variables, observation, **extra_feed):
         sess = self.sess
         feed_dict = {self.X: adjust_shape(self.X, observation)}
@@ -119,17 +130,14 @@ class PolicyWithValue(object):
         tf_util.load_state(load_path, sess=self.sess)
 
     # JAG: Calculate gradient of policy wrt state (observation)
-    def adv_gradient(self, obs, reward, old_obs):
-        feed_dict = {self.X: adjust_shape(self.X, obs)}
-        # TODO: Move this penalty outside
-        adv_gamma = 1
-        # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
-        # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
-        loss = tf.reduce_mean(self.neglogp * (reward - self.vf)) \
-                + adv_gamma * tf.square(tf.reduce_mean(self.X - old_obs))
-        grads = tf.gradients(ys=loss, xs=self.X)
+    def adv_gradient(self, obs, reward, old_obs, adv_gamma):
+        feed_dict = {
+                self.X: adjust_shape(self.X, obs),
+                self.reward: adjust_shape(self.reward, reward),
+                self.old_X: adjust_shape(self.old_X, old_obs)
+        }
 
-        return self.sess.run(grads, feed_dict)
+        return self.sess.run(self.grads, feed_dict)
 
 def build_policy(env, policy_network, value_network=None,  normalize_observations=False, estimate_q=False, **policy_kwargs):
     if isinstance(policy_network, str):

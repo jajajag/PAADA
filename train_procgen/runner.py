@@ -19,8 +19,10 @@ class RunnerWithAugs(Runner):
 
         # TODO: Set adv as parameters in the future
         self.is_adv = True
-        self.adv_steps = 1000
-        self.adv_lr = 0.001
+        self.adv_steps = 40
+        self.adv_lr = 1e5
+        self.adv_gamma = 1
+        self.adv_gap = 16
 
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
@@ -37,7 +39,7 @@ class RunnerWithAugs(Runner):
         mb_obs, mb_rewards, mb_actions = [], [], []
         mb_values, mb_dones, mb_neglogpacs = [],[],[]
 
-        mb_states = self.states
+        mb_states = [self.states]
         epinfos = []
         # For n in range number of steps (Sample minibatch)
         for _ in range(self.nsteps):
@@ -46,6 +48,7 @@ class RunnerWithAugs(Runner):
             # self.obs[:] = env.reset() on init
             actions, values, self.states, neglogpacs = self.model.step(
                     self.obs, S=self.states, M=self.dones)
+            mb_states.append(self.states)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
@@ -91,13 +94,18 @@ class RunnerWithAugs(Runner):
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
 
             # Skip if we do not use adversarial
-            if not self.is_adv: continue
+            if not self.is_adv or t % self.adv_gap != 0: continue
 
-            obs = mb_obs[t].copy()
+            obs = mb_obs[t].copy().astype(np.float32)
+            reward = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal \
+                    + self.gamma * self.lam * nextnonterminal * lastgaelam
+            #reward = mb_rewards[t]
             for it in range(self.adv_steps):
-                grads = self.model.adv_gradient(obs, mb_rewards[t], mb_obs[t])
+                # Do gradient descent to the observations
+                grads = np.array(self.model.adv_gradient(
+                    obs, reward, mb_obs[t], self.adv_gamma)[0])
                 obs -= self.adv_lr * grads
-            print(obs)
+            mb_obs[t] = obs
 
         mb_returns = mb_advs + mb_values
 
@@ -106,4 +114,4 @@ class RunnerWithAugs(Runner):
             self.obs = self.aug_func.do_augmentation(obs)
 
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
-            mb_neglogpacs)), mb_states, epinfos)
+            mb_neglogpacs)), mb_states[-1], epinfos)
