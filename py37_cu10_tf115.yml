@@ -1,4 +1,4 @@
-name: py37_cu10_tf115
+name: mixreg
 
 channels:
   - conda-forge

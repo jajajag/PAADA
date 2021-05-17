@@ -1,4 +1,4 @@
-name: py36_cu9_tf112
+name: mixreg
 
 channels:
   - conda-forge
