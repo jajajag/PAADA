@@ -188,6 +188,7 @@ class MixregModel:
         self.act_model = act_model
         self.step = act_model.step
         self.value = act_model.value
+        self.adv_gradient = act_model.adv_gradient
         self.initial_state = act_model.initial_state
 
         self.save = functools.partial(save_variables, sess=sess)
