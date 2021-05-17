@@ -25,8 +25,11 @@ def observation_placeholder(ob_space, batch_size=None, name='Ob'):
         'Can only deal with Discrete and Box observation spaces for now'
 
     dtype = ob_space.dtype
-    if dtype == np.int8:
-        dtype = np.uint8
+    #if dtype == np.int8:
+    #    dtype = np.uint8
+    # Force to use float32 instead of int8
+    # Otherwise we cannot compute the gradient
+    dtype = np.float32
 
     return tf.placeholder(shape=(batch_size,) + ob_space.shape, dtype=dtype, name=name)
 
