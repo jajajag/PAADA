@@ -38,7 +38,7 @@ def main():
         description='Process procgen training arguments.')
     parser.add_argument('--env_name', type=str, default='coinrun')
     parser.add_argument('--distribution_mode', type=str, default='hard',
-                        choices=["easy", "hard", "exploration", "memory", "extreme"])
+            choices=["easy", "hard", "exploration", "memory", "extreme"])
     parser.add_argument('--num_levels', type=int, default=0)
     parser.add_argument('--start_level', type=int, default=0)
     parser.add_argument('--test_worker_interval', type=int, default=0)
@@ -47,14 +47,31 @@ def main():
     parser.add_argument('--use_bn', action='store_true')
     parser.add_argument('--use_l2reg', action='store_true')
     parser.add_argument('--l2reg_coeff', type=float, default=1e-4)
-    parser.add_argument('--data_aug', type=str, default='no_aug', choices=["no_aug", "cutout_color", "crop"])
+    parser.add_argument('--data_aug', type=str, default='no_aug', 
+            choices=["no_aug", "cutout_color", "crop"])
     parser.add_argument('--use_rand_conv', action='store_true')
-    parser.add_argument('--model_width', type=str, default='1x', choices=["1x", "2x", "4x"])
+    parser.add_argument('--model_width', type=str, default='1x',
+            choices=["1x", "2x", "4x"])
     parser.add_argument('--level_setup', type=str, default='procgen',
-                        choices=["procgen", "oracle"])
+            choices=["procgen", "oracle"])
     parser.add_argument('--mix_mode', type=str, default='nomix',
-                        choices=['nomix', 'mixreg', 'mixobs'])
+            choices=['nomix', 'mixreg', 'mixobs'])
     parser.add_argument('--mix_alpha', type=float, default=0.2)
+
+    # JAG: Parameters for adversarial RL
+    # 1. Update the whole epoch for every n epochs if 'adv_epoch'
+    #    Update the current step for every n steps if 'adv_step'
+    #    Do nothing for any other mode name
+    parser.add_argument('--adv_mode', type=str, default='adv_step',
+            choices=['no_adv', 'adv_step', 'adv_epoch'])
+    # 2. The number of steps for adversarial gradient descent
+    parser.add_argument('--adv_steps', type=int, default=40)
+    # 3. Learning rate for adversarial gradient descent
+    parser.add_argument('--adv_lr', type=float, default=1e5)
+    # 4. Adversarial penalty for observation euclidean distance
+    parser.add_argument('--adv_gamma', type=float, default=1)
+    # 5. Use adversarial update every adv_gap steps / epochs
+    parser.add_argument('--adv_gap', type=int, default=16)
     args = parser.parse_args()
 
     # Setup test worker
@@ -63,7 +80,8 @@ def main():
     test_worker_interval = args.test_worker_interval
     is_test_worker = False
     if test_worker_interval > 0:
-        is_test_worker = comm.Get_rank() % test_worker_interval == (test_worker_interval - 1)
+        is_test_worker = comm.Get_rank() % test_worker_interval == (
+                test_worker_interval - 1)
     mpi_rank_weight = 0 if is_test_worker else 1
 
     # Setup env specs
@@ -87,8 +105,9 @@ def main():
 
     # Create env
     logger.info("creating environment")
-    venv = ProcgenEnv(num_envs=num_envs, env_name=env_name, num_levels=num_levels,
-                      start_level=start_level, distribution_mode=args.distribution_mode)
+    venv = ProcgenEnv(
+            num_envs=num_envs, env_name=env_name, num_levels=num_levels,
+            start_level=start_level, distribution_mode=args.distribution_mode)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
@@ -111,8 +130,9 @@ def main():
         depths = [32, 64, 64]
     elif args.model_width == '4x':
         depths = [64, 128, 128]
-    conv_fn = lambda x: build_impala_cnn(x, depths=depths, use_bn=args.use_bn,
-                                            randcnn=args.use_rand_conv and not is_test_worker)
+    conv_fn = lambda x: build_impala_cnn(
+            x, depths=depths, use_bn=args.use_bn,
+            randcnn=args.use_rand_conv and not is_test_worker)
 
     # Training
     logger.info("training")
@@ -140,8 +160,17 @@ def main():
         max_grad_norm=max_grad_norm,
         data_aug=args.data_aug,
         use_rand_conv=args.use_rand_conv,
-        model_fn=get_mixreg_model(mix_mode=args.mix_mode, mix_alpha=args.mix_alpha,
-                                  use_l2reg=args.use_l2reg, l2reg_coeff=args.l2reg_coeff),
+        model_fn=get_mixreg_model(
+            mix_mode=args.mix_mode,
+            mix_alpha=args.mix_alpha,
+            use_l2reg=args.use_l2reg,
+            l2reg_coeff=args.l2reg_coeff),
+        # JAG: Pass adversarial parameters
+        adv_mode=args.adv_mode,
+        adv_steps=args.adv_steps,
+        adv_lr=args.adv_lr,
+        adv_gap=args.adv_gap,
+        adv_gamma=args.adv_gamma,
     )
 
     # Saving

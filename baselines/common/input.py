@@ -27,7 +27,7 @@ def observation_placeholder(ob_space, batch_size=None, name='Ob'):
     dtype = ob_space.dtype
     #if dtype == np.int8:
     #    dtype = np.uint8
-    # Force to use float32 instead of int8
+    # JAG: Force to use float32 instead of int8
     # Otherwise we cannot compute the gradient
     dtype = np.float32
 

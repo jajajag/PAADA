@@ -1,16 +1,21 @@
 import tensorflow as tf
-from baselines.common.policies import _normalize_clip_observation, PolicyWithValue
+from baselines.common.policies import _normalize_clip_observation, \
+        PolicyWithValue
 from baselines.common.input import observation_placeholder, encode_observation
 from baselines.common.models import get_network_builder
 
 from .utils import reduce_std
 
-def build_policy(env, policy_network, value_network=None, normalize_observations=False, estimate_q=False, **policy_kwargs):
+def build_policy(env, policy_network, value_network=None,
+        # JAG: Pass adv_gamma
+        normalize_observations=False, estimate_q=False, adv_gamma=1,
+        **policy_kwargs):
     if isinstance(policy_network, str):
         network_type = policy_network
         policy_network = get_network_builder(network_type)(**policy_kwargs)
 
-    def policy_fn(nbatch=None, nsteps=None, sess=None, observ_placeholder=None, mix_mode='nomix'):
+    def policy_fn(nbatch=None, nsteps=None, sess=None, observ_placeholder=None,
+            mix_mode='nomix'):
         ob_space = env.observation_space
 
         extra_tensors = {}
@@ -23,7 +28,8 @@ def build_policy(env, policy_network, value_network=None, normalize_observations
             OTHER_INDICES = tf.placeholder(tf.int32, [None])
             coeff = tf.reshape(COEFF, (-1, 1, 1, 1))
             encoded_x = tf.cast(X, tf.float32)
-            encoded_x = coeff * tf.gather(encoded_x, INDICES, axis=0) + (1 - coeff) * tf.gather(encoded_x, OTHER_INDICES, axis=0)
+            encoded_x = coeff * tf.gather(encoded_x, INDICES, axis=0) \
+                    + (1 - coeff) * tf.gather(encoded_x, OTHER_INDICES, axis=0)
             encoded_x = tf.cast(encoded_x, tf.uint8)
             extra_tensors['coeff'] = COEFF
             extra_tensors['indices'] = INDICES
@@ -59,7 +65,8 @@ def build_policy(env, policy_network, value_network=None, normalize_observations
                 assert callable(_v_net)
 
             with tf.variable_scope('vf', reuse=tf.AUTO_REUSE):
-                # TODO recurrent architectures are not supported with value_network=copy yet
+                # TODO recurrent architectures are not supported with
+                # value_network=copy yet
                 vf_latent = _v_net(encoded_x)
 
         policy = PolicyWithValue(
@@ -69,6 +76,8 @@ def build_policy(env, policy_network, value_network=None, normalize_observations
             vf_latent=vf_latent,
             sess=sess,
             estimate_q=estimate_q,
+            # JAG: Pass adv_gamma to policy
+            adv_gamma=adv_gamma,
             **extra_tensors
         )
         return policy

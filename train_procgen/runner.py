@@ -10,19 +10,20 @@ from baselines.ppo2.runner import Runner, sf01
 from .data_augs import Cutout_Color, Rand_Crop
 
 class RunnerWithAugs(Runner):
-    def __init__(self, *, env, model, nsteps, gamma, lam, data_aug="no_aug",
-            is_train=True):
+    def __init__(self, *, env, model, nsteps, gamma, lam,
+            # JAG: Set up adversarial parameters
+            adv_mode, adv_steps, adv_lr, adv_gap,
+            data_aug="no_aug", is_train=True):
         super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma,
                 lam=lam)
         self.data_aug = data_aug
         self.is_train = is_train
 
-        # TODO: Set adv as parameters in the future
-        self.is_adv = True
-        self.adv_steps = 40
-        self.adv_lr = 1e5
-        self.adv_gamma = 1
-        self.adv_gap = 16
+        # JAG: Set up adversarial parameters
+        self.adv_mode = adv_mode
+        self.adv_steps = adv_steps
+        self.adv_lr = adv_lr
+        self.adv_gap = adv_gap
 
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
@@ -34,11 +35,13 @@ class RunnerWithAugs(Runner):
                 raise ValueError("Invalid value for argument data_aug.")
             self.obs = self.aug_func.do_augmentation(self.obs)
 
-    def run(self):
+    # JAG: Update is the current number of epochs
+    def run(self, update=1):
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions = [], [], []
         mb_values, mb_dones, mb_neglogpacs = [],[],[]
 
+        # JAG: Here we also save current state, though mostly they are None
         mb_states = [self.states]
         epinfos = []
         # For n in range number of steps (Sample minibatch)
@@ -48,6 +51,7 @@ class RunnerWithAugs(Runner):
             # self.obs[:] = env.reset() on init
             actions, values, self.states, neglogpacs = self.model.step(
                     self.obs, S=self.states, M=self.dones)
+            # JAG: Update mb_states list
             mb_states.append(self.states)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
@@ -93,17 +97,24 @@ class RunnerWithAugs(Runner):
             mb_advs[t] = lastgaelam = delta \
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
 
-            # Skip if we do not use adversarial
-            if not self.is_adv or t % self.adv_gap != 0: continue
+            # JAG: The main part of gradient descent to the observation
+            # Skip the adversarial process if
+            # 1. The adv_mode is not in [adv_step, adv_epoch]
+            # 2. We do not update observation at current step/epoch 
+            if not ((self.adv_mode == 'adv_step' and t % self.adv_gap == 0) \
+              or (self.adv_mode == 'adv_epoch' and update % self.adv_gap == 0)):
+                continue
 
             obs = mb_obs[t].copy().astype(np.float32)
             reward = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal \
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
+            # JAG: We use the complicated version of reward here
+            # TODO: We can use a predictive model to predict reward
             #reward = mb_rewards[t]
             for it in range(self.adv_steps):
                 # Do gradient descent to the observations
                 grads = np.array(self.model.adv_gradient(
-                    obs, reward, mb_obs[t], self.adv_gamma)[0])
+                    obs, reward, mb_obs[t])[0])
                 obs -= self.adv_lr * grads
             mb_obs[t] = obs
 
@@ -113,5 +124,6 @@ class RunnerWithAugs(Runner):
             self.aug_func.change_randomization_params_all()
             self.obs = self.aug_func.do_augmentation(obs)
 
+        # JAG: Return mb_states[-1] instead of mb_states
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
             mb_neglogpacs)), mb_states[-1], epinfos)

@@ -12,25 +12,35 @@ import gym
 
 class PolicyWithValue(object):
     """
-    Encapsulates fields and methods for RL policy and value function estimation with shared parameters
+    Encapsulates fields and methods for RL policy and value function estimation
+    with shared parameters
     """
 
-    def __init__(self, env, observations, latent, estimate_q=False, vf_latent=None, sess=None, **tensors):
+    def __init__(self, env, observations, latent, adv_gamma, estimate_q=False,
+            vf_latent=None, sess=None, **tensors):
         """
         Parameters:
         ----------
-        env             RL environment
+        env         
+        RL environment
 
-        observations    tensorflow placeholder in which the observations will be fed
+        observations    
+        tensorflow placeholder in which the observations will be fed
 
-        latent          latent state from which policy distribution parameters should be inferred
+        latent          
+        latent state from which policy distribution parameters should be
+        inferred
 
-        vf_latent       latent state from which value function should be inferred (if None, then latent is used)
+        vf_latent       
+        latent state from which value function should be inferred (if None, then
+        latent is used)
 
-        sess            tensorflow session to run calculations in (if None, default session is used)
+        sess            
+        tensorflow session to run calculations in (if None, default session is 
+        used)
 
-        **tensors       tensorflow tensors for additional attributes such as state or mask
-
+        **tensors       
+        tensorflow tensors for additional attributes such as state or mask
         """
 
         self.X = observations
@@ -43,7 +53,8 @@ class PolicyWithValue(object):
         vf_latent = tf.layers.flatten(vf_latent)
         latent = tf.layers.flatten(latent)
 
-        # Based on the action space, will select what probability distribution type
+        # Based on the action space, will select what probability distribution
+        # type
         self.pdtype = make_pdtype(env.action_space)
 
         self.pd, self.pi = self.pdtype.pdfromlatent(latent, init_scale=0.01)
@@ -63,14 +74,14 @@ class PolicyWithValue(object):
             self.vf = fc(vf_latent, 'vf', 1)
             self.vf = self.vf[:,0]
 
-        # TODO: Put gamma into parameters
-        adv_gamma = 1
+        # JAG: Computational graph for adversarial loss
         self.reward = tf.placeholder(tf.float32, shape=self.vf.shape)
         self.old_X = tf.placeholder(tf.float32, shape=self.X.shape)
         # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
         # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
         self.loss = tf.reduce_mean(self.neglogp * (self.reward - self.vf)) \
                 + adv_gamma * tf.square(tf.reduce_mean(self.X - self.old_X))
+        print('adv_gamma', adv_gamma)
         # Gradient of loss wrt observation
         self.grads = tf.gradients(ys=self.loss, xs=self.X)
 
@@ -130,7 +141,7 @@ class PolicyWithValue(object):
         tf_util.load_state(load_path, sess=self.sess)
 
     # JAG: Calculate gradient of policy wrt state (observation)
-    def adv_gradient(self, obs, reward, old_obs, adv_gamma):
+    def adv_gradient(self, obs, reward, old_obs):
         feed_dict = {
                 self.X: adjust_shape(self.X, obs),
                 self.reward: adjust_shape(self.reward, reward),
@@ -183,7 +194,8 @@ def build_policy(env, policy_network, value_network=None,  normalize_observation
                 assert callable(_v_net)
 
             with tf.variable_scope('vf', reuse=tf.AUTO_REUSE):
-                # TODO recurrent architectures are not supported with value_network=copy yet
+                # TODO recurrent architectures are not supported with
+                # value_network=copy yet
                 vf_latent = _v_net(encoded_x)
 
         policy = PolicyWithValue(
