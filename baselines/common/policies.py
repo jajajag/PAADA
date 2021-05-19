@@ -81,7 +81,6 @@ class PolicyWithValue(object):
         # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
         self.loss = tf.reduce_mean(self.neglogp * (self.reward - self.vf)) \
                 + adv_gamma * tf.square(tf.reduce_mean(self.X - self.old_X))
-        print('adv_gamma', adv_gamma)
         # Gradient of loss wrt observation
         self.grads = tf.gradients(ys=self.loss, xs=self.X)
 
