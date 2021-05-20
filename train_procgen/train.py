@@ -59,19 +59,19 @@ def main():
     parser.add_argument('--mix_alpha', type=float, default=0.2)
 
     # JAG: Parameters for adversarial RL
-    # 1. Update the whole epoch for every n epochs if 'adv_epoch'
-    #    Update the current step for every n steps if 'adv_step'
-    #    Do nothing for any other mode name
-    parser.add_argument('--adv_mode', type=str, default='adv_step',
-            choices=['no_adv', 'adv_step', 'adv_epoch'])
-    # 2. The number of steps for adversarial gradient descent
-    parser.add_argument('--adv_steps', type=int, default=40)
+    # 1. extend mode appends the adversarial samples besides original samples
+    #    replace mode replace the adversarial samples with original samples
+    #    noadv mode does not change the standard ppo
+    parser.add_argument('--adv_mode', type=str, default='noadv',
+            choices=['noadv', 'extend', 'replace'])
+    # 2. Number of steps for adversarial gradient descent
+    parser.add_argument('--adv_steps', type=int, default=50)
     # 3. Learning rate for adversarial gradient descent
-    parser.add_argument('--adv_lr', type=float, default=1e5)
+    parser.add_argument('--adv_lr', type=float, default=1)
     # 4. Adversarial penalty for observation euclidean distance
     parser.add_argument('--adv_gamma', type=float, default=1)
-    # 5. Use adversarial update every adv_gap steps / epochs
-    parser.add_argument('--adv_gap', type=int, default=16)
+    # 5. Coefficient for adversarial mixup
+    parser.add_argument('--adv_mix', type=float, default=1)
     args = parser.parse_args()
 
     # Setup test worker
@@ -169,8 +169,8 @@ def main():
         adv_mode=args.adv_mode,
         adv_steps=args.adv_steps,
         adv_lr=args.adv_lr,
-        adv_gap=args.adv_gap,
         adv_gamma=args.adv_gamma,
+        adv_mix=args.adv_mix,
     )
 
     # Saving

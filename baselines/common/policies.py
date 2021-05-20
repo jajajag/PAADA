@@ -77,10 +77,19 @@ class PolicyWithValue(object):
         # JAG: Computational graph for adversarial loss
         self.reward = tf.placeholder(tf.float32, shape=self.vf.shape)
         self.old_X = tf.placeholder(tf.float32, shape=self.X.shape)
+        self.adv_gamma = adv_gamma
+
+        # Remember the input has shape (128, 64, 64, 3), 128 is the num envs
+        # We should keep the first dimension of loss -> the number of envs
+        self.axes = tuple(range(1, len(self.X.shape)))
         # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
         # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
-        self.loss = tf.reduce_mean(self.neglogp * (self.reward - self.vf)) \
-                + adv_gamma * tf.square(tf.reduce_mean(self.X - self.old_X))
+
+        # TODO: Check the sign of self.neglogp
+        self.loss = -self.neglogp * (self.reward - self.vf) \
+               + self.adv_gamma * tf.reduce_sum(
+                       tf.square(self.X - self.old_X), self.axes)
+
         # Gradient of loss wrt observation
         self.grads = tf.gradients(ys=self.loss, xs=self.X)
 
@@ -144,8 +153,15 @@ class PolicyWithValue(object):
         feed_dict = {
                 self.X: adjust_shape(self.X, obs),
                 self.reward: adjust_shape(self.reward, reward),
-                self.old_X: adjust_shape(self.old_X, old_obs)
+                self.old_X: adjust_shape(self.old_X, old_obs),
         }
+        # For debugging purpose
+        #a = self.sess.run(-self.neglogp * (self.reward - self.vf), feed_dict)
+        #b = self.sess.run(self.adv_gamma * tf.square(
+        #    tf.reduce_sum(self.X - self.old_X, self.axes)), feed_dict)
+        #c = self.sess.run(self.loss, feed_dict)
+        #print(a[64], b[64], c[64])
+        #print(self.sess.run(self.grads, feed_dict)[0][0])
 
         return self.sess.run(self.grads, feed_dict)
 

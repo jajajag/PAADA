@@ -25,8 +25,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         cliprange=0.2, data_aug="no_aug", use_rand_conv=False, save_interval=0,
         load_path=None, model_fn=None, update_fn=None, init_fn=None,
         # JAG: Add adversarial related parameters
-        adv_mode='adv_step', adv_steps=40, adv_lr=1e5, adv_gap=16,
-        adv_gamma,
+        adv_mode='noadv', adv_steps=50, adv_lr=1, adv_gamma=1, adv_mix=1,
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -117,16 +116,21 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     policy = build_policy(env, network, adv_gamma=adv_gamma, **network_kwargs)
 
     # Get the nb of env
+    # JAG: We can limit the number of envs here!
     nenvs = env.num_envs
 
     # Get state_space and action_space
     ob_space = env.observation_space
     ac_space = env.action_space
 
+    # JAG: Multiply nsteps by 2 if we call extend mode
+    if adv_mode == 'extend':
+        nsteps *= 2
     # Calculate the batch_size
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
     is_mpi_root = (MPI is None or MPI.COMM_WORLD.Get_rank() == 0)
+
 
     # Instantiate the model object (that creates act_model and train_model)
     if model_fn is None:
@@ -146,20 +150,26 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             if MPI is not None:
                 model._sync_param()
 
+    # JAG: We need to keep nsteps as initial value for runner
+    if adv_mode == 'extend':
+        nsteps //= 2
     # Instantiate the runner object
     runner = RunnerWithAugs(
             env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
             # JAG: Add adversarial related parameters
             adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr, 
-            adv_gap=adv_gap,
+            adv_mix=adv_mix,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
         eval_runner = RunnerWithAugs(
                 env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
                 # JAG: Add adversarial related parameters
-                adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr, 
-                adv_gap=adv_gap,
+                adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr,
+                adv_mix=adv_mix,
                 data_aug=data_aug, is_train=False)
+    # JAG: We need to keep nsteps as initial value for runner
+    if adv_mode == 'extend':
+        nsteps *= 2
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:
@@ -199,14 +209,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # Get minibatch
         # JAG: update parameter passes the current number of epochs
         (obs, returns, masks, actions, values, neglogpacs, states,
-                epinfos) = runner.run(update=update)
+                epinfos) = runner.run()
         #pylint: disable=E0632
 
         if eval_env is not None:
             # JAG: update parameter passes the current number of epochs
             (eval_obs, eval_returns, eval_masks, eval_actions,
                     eval_values, eval_neglogpacs, eval_states,
-                    eval_epinfos) = eval_runner.run(update=update)
+                    eval_epinfos) = eval_runner.run()
             #pylint: disable=E0632
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
@@ -215,9 +225,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         if eval_env is not None:
             eval_epinfobuf.extend(eval_epinfos)
 
-        # Here what we're going to do is for each minibatch calculate the loss and append it.
+        # Here what we're going to do is for each minibatch calculate the loss
+        # and append it.
         mblossvals = []
-        if states is None: # nonrecurrent version
+        if states is None:
+            # nonrecurrent version
             # Index of each element of batch_size
             # Create the indices array
             inds = np.arange(nbatch)
@@ -225,12 +237,16 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                 # Randomize the indexes
                 np.random.shuffle(inds)
                 # 0 to batch_size with batch_train_size step
+                # nbatch = nenvs * nsteps
+                # nbatch_train = nbatch // nminibatches
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
+                    slices = (arr[mbinds] for arr in (obs, returns, masks,
+                        actions, values, neglogpacs))
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
-        else: # recurrent version
+        else:
+            # recurrent version
             assert nenvs % nminibatches == 0
             envsperbatch = nenvs // nminibatches
             envinds = np.arange(nenvs)
@@ -241,9 +257,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
                     mbflatinds = flatinds[mbenvinds].ravel()
-                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
+                    slices = (arr[mbflatinds] for arr in (obs, returns, masks,
+                        actions, values, neglogpacs))
                     mbstates = states[mbenvinds]
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
+                    mblossvals.append(
+                            model.train(lrnow, cliprangenow, *slices, mbstates))
 
         # Feedforward --> get losses --> update
         lossvals = np.mean(mblossvals, axis=0)
