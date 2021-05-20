@@ -12,7 +12,7 @@ from .data_augs import Cutout_Color, Rand_Crop
 class RunnerWithAugs(Runner):
     def __init__(self, *, env, model, nsteps, gamma, lam,
             # JAG: Set up adversarial parameters
-            adv_mode, adv_steps, adv_lr, adv_mix,
+            adv_mode, adv_steps, adv_lr, adv_mix, adv_thresh, adv_adv,
             data_aug="no_aug", is_train=True):
         super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma,
                 lam=lam)
@@ -24,6 +24,8 @@ class RunnerWithAugs(Runner):
         self.adv_steps = adv_steps
         self.adv_lr = adv_lr
         self.adv_mix = adv_mix
+        self.adv_thresh = adv_thresh
+        self.adv_adv = adv_adv
 
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
@@ -35,7 +37,7 @@ class RunnerWithAugs(Runner):
                 raise ValueError("Invalid value for argument data_aug.")
             self.obs = self.aug_func.do_augmentation(self.obs)
 
-    def run(self):
+    def run(self, update=1):
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions = [], [], []
         mb_values, mb_dones, mb_neglogpacs = [],[],[]
@@ -58,8 +60,8 @@ class RunnerWithAugs(Runner):
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
 
-            # JAG: If the adv_mode is extend, we append one more to the list
-            if self.adv_mode == 'extend':
+            # JAG: If the adv_mode is combine, we append one more to the list
+            if self.adv_mode == 'combine' and update > self.adv_thresh:
                 mb_states.append(self.states)
                 mb_obs.append(self.obs.copy())
                 mb_actions.append(actions)
@@ -73,13 +75,15 @@ class RunnerWithAugs(Runner):
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
-                # JAG: If the adv_mode is extend, we append one more to the list
-                if self.adv_mode == 'extend' and maybeepinfo:
+                # JAG: If the adv_mode is combine, we append one more to the
+                # list
+                if self.adv_mode == 'combine' and maybeepinfo \
+                        and update > self.adv_thresh:
                     epinfos.append(maybeepinfo)
 
             mb_rewards.append(rewards)
-            # JAG: If the adv_mode is extend, we append one more to the list
-            if self.adv_mode == 'extend':
+            # JAG: If the adv_mode is combine, we append one more to the list
+            if self.adv_mode == 'combine' and update > self.adv_thresh:
                 mb_rewards.append(rewards)
 
             if self.data_aug != 'no_aug' and self.is_train:
@@ -101,13 +105,14 @@ class RunnerWithAugs(Runner):
         mb_advs = np.zeros_like(mb_rewards)
         lastgaelam = 0
         for t in reversed(range(self.nsteps)):
-            # JAG: Assign 2 * t to t if we use extend mode
-            if self.adv_mode == 'extend':
+            # JAG: Assign 2 * t to t if we use combine mode
+            if self.adv_mode == 'combine' and update > self.adv_thresh:
                 t = 2 * t
-            if self.adv_mode == 'extend' and t == 2 * self.nsteps - 2:
+            if self.adv_mode == 'combine' and t == 2 * self.nsteps - 2:
                 nextnonterminal = 1.0 - self.dones
                 nextvalues = last_values
-            elif self.adv_mode != 'extend' and t == self.nsteps - 1:
+            elif (self.adv_mode != 'combine' or update <= self.adv_thresh) \
+                    and t == self.nsteps - 1:
                 nextnonterminal = 1.0 - self.dones
                 nextvalues = last_values
             else:
@@ -122,7 +127,8 @@ class RunnerWithAugs(Runner):
             # Skip the adversarial process if
             # 1. The adv_mode is not in [adv_step, adv_epoch]
             # 2. We do not update observation at current step/epoch 
-            if self.adv_mode != 'replace' and self.adv_mode != 'extend':
+            if (self.adv_mode != 'replace' and self.adv_mode != 'combine') \
+                    or update <= self.adv_thresh:
                 continue
 
             obs = mb_obs[t].copy().astype(np.float32)
@@ -139,15 +145,24 @@ class RunnerWithAugs(Runner):
                     obs, reward, mb_actions[t], mb_obs[t])
                 obs -= self.adv_lr * np.array(grads[0])
 
-            if self.adv_mode == 'extend':
+            if self.adv_mode == 'combine' and update > self.adv_thresh:
                 t += 1
             # Save the adversarial observation and values
             # Perform mixup here
             # adv_mix = 1 means we use adversarial samples
             # adv_mix = 0 means we use original samples
             mb_obs[t] = self.adv_mix * obs + (1 - self.adv_mix) * mb_obs[t]
-            mb_values[t] = self.adv_mix * values \
-                    + (1 - self.adv_mix) * mb_values[t]
+            if self.adv_adv == 'new':
+                # Use our up to date advantage
+                mb_values[t] = values
+            elif self.adv_adv == 'old':
+                # Use original advantage
+                mb_values[t] = mb_values[t]
+            else:
+                # Mix mode for advantage 'mix'
+                mb_values[t] = self.adv_mix * values \
+                        + (1 - self.adv_mix) * mb_values[t]
+                
             # We choose with probability adv_mix is the value cannot be mixed
             #rand = np.random.random()
             #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]

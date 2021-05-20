@@ -26,6 +26,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         load_path=None, model_fn=None, update_fn=None, init_fn=None,
         # JAG: Add adversarial related parameters
         adv_mode='noadv', adv_steps=50, adv_lr=1, adv_gamma=1, adv_mix=1,
+        adv_thresh=50, adv_adv='new',
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -158,14 +159,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
             # JAG: Add adversarial related parameters
             adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr, 
-            adv_mix=adv_mix,
+            adv_mix=adv_mix, adv_thresh=adv_thresh, adv_adv=adv_adv,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
         eval_runner = RunnerWithAugs(
                 env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
                 # JAG: Add adversarial related parameters
                 adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr,
-                adv_mix=adv_mix,
+                adv_mix=adv_mix, adv_thresh=adv_thresh, adv_adv=adv_adv,
                 data_aug=data_aug, is_train=False)
     # JAG: We need to keep nsteps as initial value for runner
     if adv_mode == 'extend':
@@ -209,14 +210,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # Get minibatch
         # JAG: update parameter passes the current number of epochs
         (obs, returns, masks, actions, values, neglogpacs, states,
-                epinfos) = runner.run()
+                epinfos) = runner.run(update)
         #pylint: disable=E0632
 
         if eval_env is not None:
             # JAG: update parameter passes the current number of epochs
             (eval_obs, eval_returns, eval_masks, eval_actions,
                     eval_values, eval_neglogpacs, eval_states,
-                    eval_epinfos) = eval_runner.run()
+                    eval_epinfos) = eval_runner.run(update)
             #pylint: disable=E0632
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')

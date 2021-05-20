@@ -63,15 +63,20 @@ def main():
     #    replace mode replace the adversarial samples with original samples
     #    noadv mode does not change the standard ppo
     parser.add_argument('--adv_mode', type=str, default='noadv',
-            choices=['noadv', 'extend', 'replace'])
+            choices=['noadv', 'combine', 'replace'])
+    # TODO: change replace name to adv
     # 2. Number of steps for adversarial gradient descent
-    parser.add_argument('--adv_steps', type=int, default=50)
+    parser.add_argument('--adv_steps', type=int, default=20)
     # 3. Learning rate for adversarial gradient descent
     parser.add_argument('--adv_lr', type=float, default=1)
     # 4. Adversarial penalty for observation euclidean distance
-    parser.add_argument('--adv_gamma', type=float, default=1)
+    parser.add_argument('--adv_gamma', type=float, default=0.1)
     # 5. Coefficient for adversarial mixup
     parser.add_argument('--adv_mix', type=float, default=1)
+    # 6. We use adversarial after threshold epochs of PPO training 
+    parser.add_argument('--adv_thresh', type=int, default=50)
+    # 7. If we use old value to calculate or new value
+    parser.add_argument('--adv_adv', type=str, default='new')
     args = parser.parse_args()
 
     # Setup test worker
@@ -171,6 +176,8 @@ def main():
         adv_lr=args.adv_lr,
         adv_gamma=args.adv_gamma,
         adv_mix=args.adv_mix,
+        adv_thresh=args.adv_thresh,
+        adv_adv=args.adv_adv,
     )
 
     # Saving
