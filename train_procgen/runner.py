@@ -134,12 +134,11 @@ class RunnerWithAugs(Runner):
             # Gradient descent on observations
             for it in range(self.adv_steps):
                 # Do gradient descent to the observations
-                grads = np.array(self.model.adv_gradient(
-                    obs, reward, mb_obs[t])[0])
-                obs -= self.adv_lr * grads
+                # Actually, we should compute values again after the last iter
+                grads, values = self.model.adv_gradient(
+                    obs, reward, mb_actions[t], mb_obs[t])
+                obs -= self.adv_lr * np.array(grads[0])
 
-            actions, values, states, neglogpacs = self.model.step(
-                    obs, S=mb_states[t], M=mb_dones[t])
             if self.adv_mode == 'extend':
                 t += 1
             # Save the adversarial observation and values
@@ -150,9 +149,9 @@ class RunnerWithAugs(Runner):
             mb_values[t] = self.adv_mix * values \
                     + (1 - self.adv_mix) * mb_values[t]
             # We choose with probability adv_mix is the value cannot be mixed
-            rand = np.random.random()
-            mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
-            mb_states[t] = states if rand < self.adv_mix else mb_states[t]
+            #rand = np.random.random()
+            #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
+            #mb_states[t] = states if rand < self.adv_mix else mb_states[t]
 
         mb_returns = mb_advs + mb_values
 

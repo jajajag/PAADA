@@ -149,10 +149,11 @@ class PolicyWithValue(object):
         tf_util.load_state(load_path, sess=self.sess)
 
     # JAG: Calculate gradient of policy wrt state (observation)
-    def adv_gradient(self, obs, reward, old_obs):
+    def adv_gradient(self, obs, reward, actions, old_obs):
         feed_dict = {
                 self.X: adjust_shape(self.X, obs),
                 self.reward: adjust_shape(self.reward, reward),
+                self.action: adjust_shape(self.action, actions),
                 self.old_X: adjust_shape(self.old_X, old_obs),
         }
         # For debugging purpose
@@ -160,10 +161,10 @@ class PolicyWithValue(object):
         #b = self.sess.run(self.adv_gamma * tf.square(
         #    tf.reduce_sum(self.X - self.old_X, self.axes)), feed_dict)
         #c = self.sess.run(self.loss, feed_dict)
-        #print(a[64], b[64], c[64])
+        print(a[64], b[64], c[64])
         #print(self.sess.run(self.grads, feed_dict)[0][0])
 
-        return self.sess.run(self.grads, feed_dict)
+        return self.sess.run([self.grads, self.vf], feed_dict)
 
 def build_policy(env, policy_network, value_network=None,  normalize_observations=False, estimate_q=False, **policy_kwargs):
     if isinstance(policy_network, str):
