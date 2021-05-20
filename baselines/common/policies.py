@@ -161,7 +161,7 @@ class PolicyWithValue(object):
         #b = self.sess.run(self.adv_gamma * tf.square(
         #    tf.reduce_sum(self.X - self.old_X, self.axes)), feed_dict)
         #c = self.sess.run(self.loss, feed_dict)
-        print(a[64], b[64], c[64])
+        #print(a[64], b[64], c[64])
         #print(self.sess.run(self.grads, feed_dict)[0][0])
 
         return self.sess.run([self.grads, self.vf], feed_dict)
