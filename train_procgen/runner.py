@@ -148,14 +148,26 @@ class RunnerWithAugs(Runner):
             #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
             #mb_states[t] = states if rand < self.adv_mix else mb_states[t]
             '''
-        obs = mb_obs.copy()
-        for it in range(self.adv_steps):
-            # Do gradient descent to the observations
-            # Actually, we should compute values again after the last iter
-            grads, values = self.model.adv_gradient(
-                obs, mb_rewards, mb_actions, mb_obs)
-            obs -= self.adv_lr * np.array(grads[0])
-            print(obs)
+        step = 2
+        obs_raw, obs_flat = mb_obs.shape, [-1] + list(mb_obs.shape)
+        adv_obs = np.asarray(mb_obs, dtype=np.float32).reshape(obs_flat)
+        #adv_obs_old = np.asarray(mb_obs, dtype=np.float32).reshape(obs_flat)
+        #adv_actions = np.asarray(mb_actions).reshape(obs_flat)
+        #adv_rewards = np.asarray(mb_rewards, dtype=np.float32).reshape(obs_flat)
+        for t in range(0, self.nsteps, step):
+            start, end = t * self.nsteps, (t + step) * self.nsteps
+            mb_start, mb_end = t, t + step
+            for it in range(self.adv_steps):
+                # Do gradient descent to the observations
+                # Actually, we should compute values again after the last iter
+                grads, values = self.model.adv_gradient(
+                        adv_obs[start:end],
+                        mb_rewards[mb_start:mb_end],
+                        mb_actions[mb_start:mb_end],
+                        mb_obs[mb_start:mb_end])
+                print(grads[0].shape)
+                adv_obs[start:end] -= self.adv_lr * np.array(grads[0])
+                print(obs)
 
         mb_returns = mb_advs + mb_values
 
