@@ -74,17 +74,6 @@ class RunnerWithAugs(Runner):
             else:
                 self.obs[:] = obs
 
-        # JAG: If the adv_mode is combine, we double the original list
-        if self.adv_mode == 'combine' and update > self.adv_thresh:
-            mb_obs += mb_obs
-            mb_rewards += mb_rewards
-            mb_actions += mb_actions
-            mb_values += mb_values
-            mb_neglogpacs += mb_neglogpacs
-            mb_dones += mb_dones
-            mb_states += mb_states
-            epinfos += epinfos
-
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
@@ -114,6 +103,7 @@ class RunnerWithAugs(Runner):
             # Skip the adversarial process if
             # 1. The adv_mode is not in [adv_step, adv_epoch]
             # 2. We do not update observation at current step/epoch 
+            '''
             if (self.adv_mode != 'replace' and self.adv_mode != 'combine') \
                     or update <= self.adv_thresh:
                 continue
@@ -124,6 +114,9 @@ class RunnerWithAugs(Runner):
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
             #reward = mb_rewards[t]
 
+            import time
+            tt = time.time()
+            # TODO: Flatten the list, then do gradient to all batches
             # Gradient descent on observations
             for it in range(self.adv_steps):
                 # Do gradient descent to the observations
@@ -131,6 +124,7 @@ class RunnerWithAugs(Runner):
                 grads, values = self.model.adv_gradient(
                     obs, reward, mb_actions[t], mb_obs[t])
                 obs -= self.adv_lr * np.array(grads[0])
+            print('gradient time', time.time() - tt)
 
             if self.adv_mode == 'combine':
                 t *= 2
@@ -153,6 +147,15 @@ class RunnerWithAugs(Runner):
             #rand = np.random.random()
             #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
             #mb_states[t] = states if rand < self.adv_mix else mb_states[t]
+            '''
+        obs = mb_obs.copy()
+        for it in range(self.adv_steps):
+            # Do gradient descent to the observations
+            # Actually, we should compute values again after the last iter
+            grads, values = self.model.adv_gradient(
+                obs, mb_rewards, mb_actions, mb_obs)
+            obs -= self.adv_lr * np.array(grads[0])
+            print(obs)
 
         mb_returns = mb_advs + mb_values
 
