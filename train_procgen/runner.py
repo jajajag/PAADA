@@ -61,7 +61,7 @@ class RunnerWithAugs(Runner):
             mb_dones.append(self.dones)
 
             # JAG: If the adv_mode is combine, we append one more to the list
-            if self.adv_mode == 'combine' and update > self.adv_thresh:
+            if self.adv_mode == 'combine':
                 mb_states.append(self.states)
                 mb_obs.append(self.obs.copy())
                 mb_actions.append(actions)
@@ -77,13 +77,12 @@ class RunnerWithAugs(Runner):
                 if maybeepinfo: epinfos.append(maybeepinfo)
                 # JAG: If the adv_mode is combine, we append one more to the
                 # list
-                if self.adv_mode == 'combine' and maybeepinfo \
-                        and update > self.adv_thresh:
+                if self.adv_mode == 'combine' and maybeepinfo:
                     epinfos.append(maybeepinfo)
 
             mb_rewards.append(rewards)
             # JAG: If the adv_mode is combine, we append one more to the list
-            if self.adv_mode == 'combine' and update > self.adv_thresh:
+            if self.adv_mode == 'combine':
                 mb_rewards.append(rewards)
 
             if self.data_aug != 'no_aug' and self.is_train:
@@ -106,13 +105,12 @@ class RunnerWithAugs(Runner):
         lastgaelam = 0
         for t in reversed(range(self.nsteps)):
             # JAG: Assign 2 * t to t if we use combine mode
-            if self.adv_mode == 'combine' and update > self.adv_thresh:
+            if self.adv_mode == 'combine':
                 t = 2 * t
             if self.adv_mode == 'combine' and t == 2 * self.nsteps - 2:
                 nextnonterminal = 1.0 - self.dones
                 nextvalues = last_values
-            elif (self.adv_mode != 'combine' or update <= self.adv_thresh) \
-                    and t == self.nsteps - 1:
+            elif self.adv_mode != 'combine' and t == self.nsteps - 1:
                 nextnonterminal = 1.0 - self.dones
                 nextvalues = last_values
             else:
@@ -145,7 +143,7 @@ class RunnerWithAugs(Runner):
                     obs, reward, mb_actions[t], mb_obs[t])
                 obs -= self.adv_lr * np.array(grads[0])
 
-            if self.adv_mode == 'combine' and update > self.adv_thresh:
+            if self.adv_mode == 'combine':
                 t += 1
             # Save the adversarial observation and values
             # Perform mixup here
