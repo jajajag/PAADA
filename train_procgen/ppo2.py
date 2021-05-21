@@ -124,9 +124,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     ob_space = env.observation_space
     ac_space = env.action_space
 
-    # JAG: Multiply nsteps by 2 if we call combine mode
-    if adv_mode == 'combine':
-        nsteps *= 2
     # Calculate the batch_size
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
@@ -151,9 +148,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             if MPI is not None:
                 model._sync_param()
 
-    # JAG: We need to keep nsteps as initial value for runner
-    if adv_mode == 'combine':
-        nsteps //= 2
     # Instantiate the runner object
     runner = RunnerWithAugs(
             env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
@@ -168,9 +162,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                 adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr,
                 adv_mix=adv_mix, adv_thresh=adv_thresh, adv_adv=adv_adv,
                 data_aug=data_aug, is_train=False)
-    # JAG: We need to keep nsteps as initial value for runner
-    if adv_mode == 'combine':
-        nsteps *= 2
 
     epinfobuf = deque(maxlen=100)
     if eval_env is not None:

@@ -60,35 +60,30 @@ class RunnerWithAugs(Runner):
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
 
-            # JAG: If the adv_mode is combine, we append one more to the list
-            if self.adv_mode == 'combine':
-                mb_states.append(self.states)
-                mb_obs.append(self.obs.copy())
-                mb_actions.append(actions)
-                mb_values.append(values)
-                mb_neglogpacs.append(neglogpacs)
-                mb_dones.append(self.dones)
-
             # Take actions in env and look the results
             # Infos contains a ton of useful informations
             obs, rewards, self.dones, infos = self.env.step(actions)
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
-                # JAG: If the adv_mode is combine, we append one more to the
-                # list
-                if self.adv_mode == 'combine' and maybeepinfo:
-                    epinfos.append(maybeepinfo)
 
             mb_rewards.append(rewards)
-            # JAG: If the adv_mode is combine, we append one more to the list
-            if self.adv_mode == 'combine':
-                mb_rewards.append(rewards)
 
             if self.data_aug != 'no_aug' and self.is_train:
                 self.obs[:] = self.aug_func.do_augmentation(obs)
             else:
                 self.obs[:] = obs
+
+        # JAG: If the adv_mode is combine, we double the original list
+        if self.adv_mode == 'combine' and update > self.adv_thresh:
+            mb_obs += mb_obs
+            mb_rewards += mb_rewards
+            mb_actions += mb_actions
+            mb_values += mb_values
+            mb_neglogpacs += mb_neglogpacs
+            mb_dones += mb_dones
+            mb_states += mb_states
+            epinfos += epinfos
 
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
@@ -104,13 +99,7 @@ class RunnerWithAugs(Runner):
         mb_advs = np.zeros_like(mb_rewards)
         lastgaelam = 0
         for t in reversed(range(self.nsteps)):
-            # JAG: Assign 2 * t to t if we use combine mode
-            if self.adv_mode == 'combine':
-                t = 2 * t
-            if self.adv_mode == 'combine' and t == 2 * self.nsteps - 2:
-                nextnonterminal = 1.0 - self.dones
-                nextvalues = last_values
-            elif self.adv_mode != 'combine' and t == self.nsteps - 1:
+            if t == self.nsteps - 1:
                 nextnonterminal = 1.0 - self.dones
                 nextvalues = last_values
             else:
@@ -144,7 +133,7 @@ class RunnerWithAugs(Runner):
                 obs -= self.adv_lr * np.array(grads[0])
 
             if self.adv_mode == 'combine':
-                t += 1
+                t *= 2
             # Save the adversarial observation and values
             # Perform mixup here
             # adv_mix = 1 means we use adversarial samples
@@ -160,13 +149,38 @@ class RunnerWithAugs(Runner):
                 # Mix mode for advantage 'mix'
                 mb_values[t] = self.adv_mix * values \
                         + (1 - self.adv_mix) * mb_values[t]
-                
             # We choose with probability adv_mix is the value cannot be mixed
             #rand = np.random.random()
             #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
             #mb_states[t] = states if rand < self.adv_mix else mb_states[t]
 
         mb_returns = mb_advs + mb_values
+
+        # JAG: Keep original size of output if the epoch is below threshold
+        if update <= self.adv_thresh:
+            mb_obs = mb_obs[:self.nsteps]
+            mb_returns = mb_returns[:self.nsteps]
+            mb_dones = mb_dones[:self.nsteps]
+            mb_actions = mb_actions[:self.nsteps]
+            mb_values = mb_values[:self.nsteps]
+            mb_neglogpacs = mb_neglogpacs[:self.nsteps]
+        # If we are above the threshold and in combine mode
+        # Shuffle the indices. Randomly select samples from both original data
+        # and augmented data
+        # TODO: Set coeff for selecting samples (0.5 : 0.5)
+        elif self.adv_mode == 'combine':
+            ori_len, adv_ind = self.nsteps // 2, self.nsteps - self.nsteps // 2
+            ori_ind = [i for i in range(self.nsteps)]
+            adv_ind = [i for i in range(self.nsteps, self.nsteps * 2)]
+            np.random.shuffle(ori_ind)
+            np.random.shuffle(adv_ind)
+            # Generate new combined data with indices
+            mb_obs = mb_obs[ori_ind] + mb_obs[adv_ind]
+            mb_returns = mb_returns[ori_ind] + mb_returns[adv_ind]
+            mb_dones = mb_dones[ori_ind] + mb_dones[adv_ind]
+            mb_actions = mb_actions[ori_ind] + mb_actions[adv_ind]
+            mb_values = mb_values[ori_ind] + mb_values[adv_ind]
+            mb_neglogpacs = mb_neglogpacs[ori_ind] + mb_neglogpacs[adv_ind]
 
         if self.data_aug != 'no_aug' and self.is_train:
             self.aug_func.change_randomization_params_all()
