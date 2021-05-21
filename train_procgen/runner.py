@@ -1,7 +1,6 @@
 """
 Runner wrapper to add augmentation
 """
-
 import itertools
 
 import numpy as np
@@ -9,10 +8,14 @@ from baselines.ppo2.runner import Runner, sf01
 
 from .data_augs import Cutout_Color, Rand_Crop
 
+
+MAX_ITER = 50
+
+
 class RunnerWithAugs(Runner):
     def __init__(self, *, env, model, nsteps, gamma, lam,
             # JAG: Set up adversarial parameters
-            adv_mode, adv_steps, adv_lr, adv_mix, adv_thresh, adv_adv,
+            adv_epsilon, adv_lr, adv_ratio, adv_thresh,
             data_aug="no_aug", is_train=True):
         super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma,
                 lam=lam)
@@ -20,12 +23,10 @@ class RunnerWithAugs(Runner):
         self.is_train = is_train
 
         # JAG: Set up adversarial parameters
-        self.adv_mode = adv_mode
-        self.adv_steps = adv_steps
+        self.adv_epsilon = adv_epsilon
         self.adv_lr = adv_lr
-        self.adv_mix = adv_mix
+        self.adv_ratio = adv_ratio
         self.adv_thresh = adv_thresh
-        self.adv_adv = adv_adv
 
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
@@ -42,8 +43,7 @@ class RunnerWithAugs(Runner):
         mb_obs, mb_rewards, mb_actions = [], [], []
         mb_values, mb_dones, mb_neglogpacs = [],[],[]
 
-        # JAG: Here we also save current state, though mostly they are None
-        mb_states = [self.states]
+        mb_states = self.states
         epinfos = []
         # For n in range number of steps (Sample minibatch)
         for _ in range(self.nsteps):
@@ -52,8 +52,6 @@ class RunnerWithAugs(Runner):
             # self.obs[:] = env.reset() on init
             actions, values, self.states, neglogpacs = self.model.step(
                     self.obs, S=self.states, M=self.dones)
-            # JAG: Update mb_states list
-            mb_states.append(self.states)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
@@ -87,6 +85,12 @@ class RunnerWithAugs(Runner):
         mb_returns = np.zeros_like(mb_rewards)
         mb_advs = np.zeros_like(mb_rewards)
         lastgaelam = 0
+
+        # JAG: We do adversarial to nsteps * ratio samples
+        adv_ind = [i for i in range(self.nsteps)]
+        np.random.shuffle(adv_ind)
+        adv_ind = adv_ind[:int(self.nsteps * self.adv_ratio['adv'])]
+
         for t in reversed(range(self.nsteps)):
             if t == self.nsteps - 1:
                 nextnonterminal = 1.0 - self.dones
@@ -101,108 +105,50 @@ class RunnerWithAugs(Runner):
 
             # JAG: The main part of gradient descent to the observation
             # Skip the adversarial process if
-            # 1. The adv_mode is not in [adv_step, adv_epoch]
-            # 2. We do not update observation at current step/epoch 
-            '''
-            if (self.adv_mode != 'replace' and self.adv_mode != 'combine') \
-                    or update <= self.adv_thresh:
+            # 1. We do not update observation at current epoch 
+            # 2. We do not update current obs (We only modify ratio * nsteps)
+            if update <= self.adv_thresh or t not in adv_ind:
                 continue
 
-            obs = mb_obs[t].copy().astype(np.float32)
             # JAG: We use the complicated version of reward here
             reward = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal \
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
             #reward = mb_rewards[t]
+            obs = mb_obs[t].copy().astype(np.float32)
 
-            import time
-            tt = time.time()
-            # TODO: Flatten the list, then do gradient to all batches
+            # TODO: Flatten the list, then do gradient to all batches (not
+            # enough meory)
             # Gradient descent on observations
-            for it in range(self.adv_steps):
+            for it in range(MAX_ITER):
                 # Do gradient descent to the observations
-                # Actually, we should compute values again after the last iter
-                grads, values = self.model.adv_gradient(
-                    obs, reward, mb_actions[t], mb_obs[t])
-                obs -= self.adv_lr * np.array(grads[0])
-            print('gradient time', time.time() - tt)
+                grads = self.model.adv_gradient(
+                        obs, reward, mb_actions[t], mb_obs[t])
+                grads = np.array(grads[0])
+                obs -= self.adv_lr * grads
+                # Exit the loop if the gradient is small enough
+                if np.mean(np.abs(grads)) < self.adv_epsilon: break
+            # Actually, we compute value again after the last iter
+            value = self.model.value(obs)
 
-            if self.adv_mode == 'combine':
-                t *= 2
-            # Save the adversarial observation and values
+            # Save the adversarial observation and value
             # Perform mixup here
-            # adv_mix = 1 means we use adversarial samples
-            # adv_mix = 0 means we use original samples
-            mb_obs[t] = self.adv_mix * obs + (1 - self.adv_mix) * mb_obs[t]
-            if self.adv_adv == 'new':
-                # Use our up to date advantage
-                mb_values[t] = values
-            elif self.adv_adv == 'old':
-                # Use original advantage
-                mb_values[t] = mb_values[t]
-            else:
-                # Mix mode for advantage 'mix'
-                mb_values[t] = self.adv_mix * values \
-                        + (1 - self.adv_mix) * mb_values[t]
+            # adv_ratio = 1 means we use adversarial samples
+            # adv_ratio = 0 means we use original samples
+            mb_obs[t] = self.adv_ratio['obs'] * obs \
+                    + (1 - self.adv_ratio['obs']) * mb_obs[t]
+            mb_values[t] = self.adv_ratio['value'] * value \
+                    + (1 - self.adv_ratio['value']) * mb_values[t]
             # We choose with probability adv_mix is the value cannot be mixed
             #rand = np.random.random()
             #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
-            #mb_states[t] = states if rand < self.adv_mix else mb_states[t]
-            '''
-        step = 2
-        obs_raw, obs_flat = mb_obs.shape, [-1] + list(mb_obs.shape)
-        adv_obs = np.asarray(mb_obs, dtype=np.float32).reshape(obs_flat)
-        #adv_obs_old = np.asarray(mb_obs, dtype=np.float32).reshape(obs_flat)
-        #adv_actions = np.asarray(mb_actions).reshape(obs_flat)
-        #adv_rewards = np.asarray(mb_rewards, dtype=np.float32).reshape(obs_flat)
-        for t in range(0, self.nsteps, step):
-            start, end = t * self.nsteps, (t + step) * self.nsteps
-            mb_start, mb_end = t, t + step
-            for it in range(self.adv_steps):
-                # Do gradient descent to the observations
-                # Actually, we should compute values again after the last iter
-                grads, values = self.model.adv_gradient(
-                        adv_obs[start:end],
-                        mb_rewards[mb_start:mb_end],
-                        mb_actions[mb_start:mb_end],
-                        mb_obs[mb_start:mb_end])
-                print(grads[0].shape)
-                adv_obs[start:end] -= self.adv_lr * np.array(grads[0])
-                print(obs)
 
         mb_returns = mb_advs + mb_values
-
-        # JAG: Keep original size of output if the epoch is below threshold
-        if update <= self.adv_thresh:
-            mb_obs = mb_obs[:self.nsteps]
-            mb_returns = mb_returns[:self.nsteps]
-            mb_dones = mb_dones[:self.nsteps]
-            mb_actions = mb_actions[:self.nsteps]
-            mb_values = mb_values[:self.nsteps]
-            mb_neglogpacs = mb_neglogpacs[:self.nsteps]
-        # If we are above the threshold and in combine mode
-        # Shuffle the indices. Randomly select samples from both original data
-        # and augmented data
-        # TODO: Set coeff for selecting samples (0.5 : 0.5)
-        elif self.adv_mode == 'combine':
-            ori_len, adv_ind = self.nsteps // 2, self.nsteps - self.nsteps // 2
-            ori_ind = [i for i in range(self.nsteps)]
-            adv_ind = [i for i in range(self.nsteps, self.nsteps * 2)]
-            np.random.shuffle(ori_ind)
-            np.random.shuffle(adv_ind)
-            # Generate new combined data with indices
-            mb_obs = mb_obs[ori_ind] + mb_obs[adv_ind]
-            mb_returns = mb_returns[ori_ind] + mb_returns[adv_ind]
-            mb_dones = mb_dones[ori_ind] + mb_dones[adv_ind]
-            mb_actions = mb_actions[ori_ind] + mb_actions[adv_ind]
-            mb_values = mb_values[ori_ind] + mb_values[adv_ind]
-            mb_neglogpacs = mb_neglogpacs[ori_ind] + mb_neglogpacs[adv_ind]
 
         if self.data_aug != 'no_aug' and self.is_train:
             self.aug_func.change_randomization_params_all()
             self.obs = self.aug_func.do_augmentation(obs)
 
-        # JAG: Return mb_states[-1] instead of mb_states
         # The obs has shape 256 * (128, 64, 64, 3), where 128 is num_env
         # sf01 flatten obs to 256 * 128 * (64, 64, 3)
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
-            mb_neglogpacs)), mb_states[-1], epinfos)
+            mb_neglogpacs)), mb_states, epinfos)

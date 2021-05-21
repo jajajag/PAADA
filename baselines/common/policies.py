@@ -86,6 +86,7 @@ class PolicyWithValue(object):
         # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
 
         # TODO: Check the sign of self.neglogp
+        # TODO: Use PPO loss
         self.loss = -self.neglogp * (self.reward - self.vf) \
                + self.adv_gamma * tf.reduce_sum(
                        tf.square(self.X - self.old_X), self.axes)
@@ -164,7 +165,7 @@ class PolicyWithValue(object):
         #print(a[64], b[64], c[64])
         #print(self.sess.run(self.grads, feed_dict)[0][0])
 
-        return self.sess.run([self.grads, self.vf], feed_dict)
+        return self.sess.run(self.grads, feed_dict)
 
 def build_policy(env, policy_network, value_network=None,  normalize_observations=False, estimate_q=False, **policy_kwargs):
     if isinstance(policy_network, str):

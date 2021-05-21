@@ -25,8 +25,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         cliprange=0.2, data_aug="no_aug", use_rand_conv=False, save_interval=0,
         load_path=None, model_fn=None, update_fn=None, init_fn=None,
         # JAG: Add adversarial related parameters
-        adv_mode='noadv', adv_steps=50, adv_lr=1, adv_gamma=1, adv_mix=1,
-        adv_thresh=50, adv_adv='new',
+        # adv = 0.5 means we use half augmented data
+        adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
+        adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1},
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -117,8 +118,13 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     policy = build_policy(env, network, adv_gamma=adv_gamma, **network_kwargs)
 
     # Get the nb of env
-    # JAG: We can limit the number of envs here!
+    # JAG
+    # TODO: We can limit the number of envs here!
     nenvs = env.num_envs
+
+    # JAG: We do not do data augmentaion to evaluation set
+    eval_ratio = adv_ratio.copy()
+    eval_ratio['adv'] = 0
 
     # Get state_space and action_space
     ob_space = env.observation_space
@@ -128,7 +134,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
     is_mpi_root = (MPI is None or MPI.COMM_WORLD.Get_rank() == 0)
-
 
     # Instantiate the model object (that creates act_model and train_model)
     if model_fn is None:
@@ -151,16 +156,17 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     # Instantiate the runner object
     runner = RunnerWithAugs(
             env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
-            # JAG: Add adversarial related parameters
-            adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr, 
-            adv_mix=adv_mix, adv_thresh=adv_thresh, adv_adv=adv_adv,
+            # JAG: Pass adversarial related parameters
+            adv_epsilon=adv_epsilon, adv_lr=adv_lr,
+            adv_thresh=adv_thresh, adv_ratio=adv_ratio,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
         eval_runner = RunnerWithAugs(
                 env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
-                # JAG: Add adversarial related parameters
-                adv_mode=adv_mode, adv_steps=adv_steps, adv_lr=adv_lr,
-                adv_mix=adv_mix, adv_thresh=adv_thresh, adv_adv=adv_adv,
+                # JAG: Pass adversarial related parameters
+                # TODO: For evaluation set, we do nothing
+                adv_epsilon=adv_epsilon, adv_lr=adv_lr,
+                adv_thresh=adv_thresh, adv_ratio=adv_ratio,
                 data_aug=data_aug, is_train=False)
 
     epinfobuf = deque(maxlen=100)
@@ -170,8 +176,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     if init_fn is not None:
         init_fn()
 
-    if use_rand_conv and mpi_rank_weight > 0:  # No rand conv for test worker
-        rand_processes = [v for v in tf.global_variables() if 'randcnn' in v.name]
+    if use_rand_conv and mpi_rank_weight > 0:
+        # No rand conv for test worker
+        rand_processes = [
+                v for v in tf.global_variables() if 'randcnn' in v.name]
         assert len(rand_processes) > 0
         init_process = tf.variables_initializer(rand_processes)
 
@@ -198,8 +206,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             model.sess.run(init_process)
             logger.info('Randomizing parameters...')
 
-        # Get minibatch
         # JAG: update parameter passes the current number of epochs
+        # Sample batch data here
         (obs, returns, masks, actions, values, neglogpacs, states,
                 epinfos) = runner.run(update)
         #pylint: disable=E0632
@@ -266,8 +274,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             update_fn(update)
 
         if update % log_interval == 0 or update == 1:
-            # Calculates if value function is a good predicator of the returns (ev > 1)
-            # or if it's just worse than predicting nothing (ev =< 0)
+            # Calculates if value function is a good predicator of the returns
+            # (ev > 1) or if it's just worse than predicting nothing (ev =< 0)
             ev = explained_variance(values, returns)
             logger.logkv("misc/serial_timesteps", update*nsteps)
             logger.logkv("misc/nupdates", update)
@@ -279,14 +287,17 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             logger.logkv('eplenmean',
                     safemean([epinfo['l'] for epinfo in epinfobuf]))
             if eval_env is not None:
-                logger.logkv('eval_eprewmean', safemean([epinfo['r'] for epinfo in eval_epinfobuf]) )
-                logger.logkv('eval_eplenmean', safemean([epinfo['l'] for epinfo in eval_epinfobuf]) )
+                logger.logkv('eval_eprewmean',
+                        safemean([epinfo['r'] for epinfo in eval_epinfobuf]) )
+                logger.logkv('eval_eplenmean',
+                        safemean([epinfo['l'] for epinfo in eval_epinfobuf]) )
             logger.logkv('misc/time_elapsed', tnow - tfirststart)
             for (lossval, lossname) in zip(lossvals, model.loss_names):
                 logger.logkv('loss/' + lossname, lossval)
 
             logger.dumpkvs()
-        if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir() and is_mpi_root:
+        if save_interval and (update % save_interval == 0 or update == 1) \
+                and logger.get_dir() and is_mpi_root:
             checkdir = osp.join(logger.get_dir(), 'checkpoints')
             os.makedirs(checkdir, exist_ok=True)
             savepath = osp.join(checkdir, '%.5i'%update)
@@ -294,6 +305,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             model.save(savepath)
 
     return model
+
 # Avoid division error when calculate the mean (in our case if epinfo is empty returns np.nan, not return an error)
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)

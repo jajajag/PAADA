@@ -78,10 +78,15 @@ class MixregModel:
             indices = train_model.indices
             other_indices = train_model.other_indices
             # mixup
-            OLDNEGLOGPAC = coeff * tf.gather(OLDNEGLOGPAC, indices, axis=0) + (1 - coeff) * tf.gather(OLDNEGLOGPAC, other_indices, axis=0)
-            OLDVPRED = coeff * tf.gather(OLDVPRED, indices, axis=0) + (1 - coeff) * tf.gather(OLDVPRED, other_indices, axis=0)
-            R = coeff * tf.gather(R, indices, axis=0) + (1 - coeff) * tf.gather(R, other_indices, axis=0)
-            ADV = coeff * tf.gather(ADV, indices, axis=0) + (1 - coeff) * tf.gather(ADV, other_indices, axis=0)
+            OLDNEGLOGPAC = coeff * tf.gather(OLDNEGLOGPAC, indices, axis=0) \
+                    + (1 - coeff) * tf.gather(
+                            OLDNEGLOGPAC, other_indices, axis=0)
+            OLDVPRED = coeff * tf.gather(OLDVPRED, indices, axis=0) \
+                    + (1 - coeff) * tf.gather(OLDVPRED, other_indices, axis=0)
+            R = coeff * tf.gather(R, indices, axis=0) \
+                    + (1 - coeff) * tf.gather(R, other_indices, axis=0)
+            ADV = coeff * tf.gather(ADV, indices, axis=0) \
+                    + (1 - coeff) * tf.gather(ADV, other_indices, axis=0)
             A = tf.gather(A, indices, axis=0)
         elif mix_mode == 'mixobs':
             # get indices
@@ -103,7 +108,8 @@ class MixregModel:
 
 
         ############ CALCULATE LOSS ############
-        # Total loss = Policy gradient loss - entropy * entropy coefficient + Value coefficient * value loss
+        # Total loss = Policy gradient loss - entropy * entropy coefficient 
+        #   + Value coefficient * value loss
 
         # Normalizing advantage
         ADV = (ADV - tf.reduce_mean(ADV)) / (reduce_std(ADV) + 1e-8)
@@ -113,7 +119,8 @@ class MixregModel:
 
         # Calculate value loss
         vpred = train_model.vf
-        vpredclipped = OLDVPRED + tf.clip_by_value(train_model.vf - OLDVPRED, - CLIPRANGE, CLIPRANGE)
+        vpredclipped = OLDVPRED + tf.clip_by_value(
+                train_model.vf - OLDVPRED, - CLIPRANGE, CLIPRANGE)
         vf_losses1 = tf.square(vpred - R)
         vf_losses2 = tf.square(vpredclipped - R)
         vf_loss = .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
@@ -122,7 +129,8 @@ class MixregModel:
         neglogpac = train_model.pd.neglogp(A)
         ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
         pg_losses = -ADV * ratio
-        pg_losses2 = -ADV * tf.clip_by_value(ratio, 1.0 - CLIPRANGE, 1.0 + CLIPRANGE)
+        pg_losses2 = -ADV * tf.clip_by_value(
+                ratio, 1.0 - CLIPRANGE, 1.0 + CLIPRANGE)
         pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
 
         # Total loss
@@ -130,7 +138,8 @@ class MixregModel:
 
         # Record some information
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
-        clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
+        clipfrac = tf.reduce_mean(tf.to_float(tf.greater(
+            tf.abs(ratio - 1.0), CLIPRANGE)))
         self.loss_names.extend([
             'total_loss',
             'policy_loss',
@@ -163,9 +172,11 @@ class MixregModel:
             params = params[-4:]
         # 2. Build our trainer
         if comm is not None and comm.Get_size() > 1:
-            self.trainer = MpiAdamOptimizer(comm, learning_rate=LR, mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
+            self.trainer = MpiAdamOptimizer(comm, learning_rate=LR,
+                    mpi_rank_weight=mpi_rank_weight, epsilon=1e-5)
         else:
-            self.trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+            self.trainer = tf.train.AdamOptimizer(
+                    learning_rate=LR, epsilon=1e-5)
         # 3. Calculate the gradients
         grads_and_var = self.trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
@@ -195,13 +206,17 @@ class MixregModel:
         self.load = functools.partial(load_variables, sess=sess)
 
         initialize()
-        global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
+        global_variables = tf.get_collection(
+                tf.GraphKeys.GLOBAL_VARIABLES, scope="")
         # Exclude the random convolution layer from syncing
-        global_variables = [v for v in global_variables if 'randcnn' not in v.name]
+        global_variables = [
+                v for v in global_variables if 'randcnn' not in v.name]
         if MPI is not None:
-            sync_from_root(sess, global_variables, comm=comm) #pylint: disable=E1101
+            sync_from_root(sess, global_variables, comm=comm)
+            #pylint: disable=E1101
 
-    def train(self, lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
+    def train(self, lr, cliprange, obs, returns, masks, actions, values,
+            neglogpacs, states=None):
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -220,7 +235,8 @@ class MixregModel:
         batchsize = len(obs)
         if self.mix_mode in ['mixreg', 'mixobs']:
             # Generate mix coefficients and indices
-            coeff = np.random.beta(self.mix_alpha, self.mix_alpha, size=(batchsize,))
+            coeff = np.random.beta(
+                    self.mix_alpha, self.mix_alpha, size=(batchsize,))
             seq_indices = np.arange(batchsize)
             rand_indices = np.random.permutation(batchsize)
             indices = np.where(coeff > 0.5, seq_indices, rand_indices)

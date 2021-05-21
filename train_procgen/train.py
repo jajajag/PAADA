@@ -59,24 +59,26 @@ def main():
     parser.add_argument('--mix_alpha', type=float, default=0.2)
 
     # JAG: Parameters for adversarial RL
-    # 1. extend mode appends the adversarial samples besides original samples
-    #    replace mode replace the adversarial samples with original samples
-    #    noadv mode does not change the standard ppo
-    parser.add_argument('--adv_mode', type=str, default='noadv',
-            choices=['noadv', 'combine', 'replace'])
     # TODO: change replace name to adv
-    # 2. Number of steps for adversarial gradient descent
-    parser.add_argument('--adv_steps', type=int, default=20)
-    # 3. Learning rate for adversarial gradient descent
-    parser.add_argument('--adv_lr', type=float, default=1)
-    # 4. Adversarial penalty for observation euclidean distance
-    parser.add_argument('--adv_gamma', type=float, default=0.1)
-    # 5. Coefficient for adversarial mixup
-    parser.add_argument('--adv_mix', type=float, default=1)
-    # 6. We use adversarial after threshold epochs of PPO training 
+    # 1. The ending condition for adversarial gradient descent
+    parser.add_argument('--adv_epsilon', type=float, default=5e-6)
+    # 2. Learning rate for adversarial gradient descent
+    parser.add_argument('--adv_lr', type=float, default=10)
+    # 3. Adversarial penalty for observation euclidean distance
+    parser.add_argument('--adv_gamma', type=float, default=0.01)
+    # 4. We use adversarial after #threshold epochs of PPO training 
     parser.add_argument('--adv_thresh', type=int, default=50)
-    # 7. If we use old value to calculate or new value
-    parser.add_argument('--adv_adv', type=str, default='new')
+    # 5. If we use evaluation environment
+    parser.add_argument('--eval_env', type=bool, default=True)
+    # 6. The ratio of adversarial augmented data
+    # adv = 1 means we replace original data with adversarial data
+    # adv = 0 means we do not use adversarial
+    parser.add_argument('--adv_adv', type=float, default=0.5)
+    # 7. The ratio of mixup original data with augmented data
+    # adv = 1 means we use augmented obs and value
+    # adv = 0 means we use original obs and value
+    parser.add_argument('--adv_obs', type=float, default=1)
+    parser.add_argument('--adv_value', type=float, default=1)
     args = parser.parse_args()
 
     # Setup test worker
@@ -116,6 +118,14 @@ def main():
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
+
+    # JAG: If we use eval_env
+    eval_env = venv if args.eval_env else None
+    # Feed parameters to a dictionary
+    adv_ratio={
+            'adv': args.adv_adv,
+            'obs': args.adv_obs,
+            'value': args.adv_value}
 
     # Setup Tensorflow
     logger.info("creating tf session")
@@ -171,13 +181,12 @@ def main():
             use_l2reg=args.use_l2reg,
             l2reg_coeff=args.l2reg_coeff),
         # JAG: Pass adversarial parameters
-        adv_mode=args.adv_mode,
-        adv_steps=args.adv_steps,
+        adv_epsilon=args.adv_epsilon,
         adv_lr=args.adv_lr,
         adv_gamma=args.adv_gamma,
-        adv_mix=args.adv_mix,
         adv_thresh=args.adv_thresh,
-        adv_adv=args.adv_adv,
+        adv_ratio=adv_ratio,
+        eval_env=eval_env,
     )
 
     # Saving
