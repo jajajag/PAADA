@@ -150,5 +150,6 @@ class RunnerWithAugs(Runner):
 
         # The obs has shape 256 * (128, 64, 64, 3), where 128 is num_env
         # sf01 flatten obs to 256 * 128 * (64, 64, 3)
+        # Then, mb_obs[a][b] will be mb_obs[b * 256 + a]
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
             mb_neglogpacs)), mb_states, epinfos)

@@ -15,8 +15,8 @@ except ImportError:
 
 from .utils import reduce_std
 
-def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2, use_l2reg=False, l2reg_coeff=1e-4,
-                     fix_representation=False):
+def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2, use_l2reg=False,
+        l2reg_coeff=1e-4, fix_representation=False):
     def model_fn(*args, **kwargs):
         kwargs['mix_mode'] = mix_mode
         kwargs['mix_alpha'] = mix_alpha
@@ -40,9 +40,10 @@ class MixregModel:
     - Save load the model
     """
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
-                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1, comm=None,
-                microbatch_size=None, mix_mode='nomix', mix_alpha=0.2,
-                fix_representation=False, use_l2reg=False, l2reg_coeff=1e-4):
+                nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1,
+                comm=None, microbatch_size=None, mix_mode='nomix',
+                mix_alpha=0.2, fix_representation=False, use_l2reg=False,
+                l2reg_coeff=1e-4):
         self.sess = sess = get_session()
 
         if MPI is not None and comm is None:
@@ -55,9 +56,11 @@ class MixregModel:
 
             # Train model for training
             if microbatch_size is None:
-                train_model = policy(nbatch_train, nsteps, sess, mix_mode=mix_mode)
+                train_model = policy(
+                        nbatch_train, nsteps, sess, mix_mode=mix_mode)
             else:
-                train_model = policy(microbatch_size, nsteps, sess, mix_mode=mix_mode)
+                train_model = policy(
+                        microbatch_size, nsteps, sess, mix_mode=mix_mode)
 
         # CREATE THE PLACEHOLDERS
         self.A = A = train_model.pdtype.sample_placeholder([None])

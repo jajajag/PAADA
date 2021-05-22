@@ -8,7 +8,7 @@ from .utils import reduce_std
 
 def build_policy(env, policy_network, value_network=None,
         # JAG: Pass adv_gamma
-        normalize_observations=False, estimate_q=False, adv_gamma=1,
+        normalize_observations=False, estimate_q=False, adv_gamma=0.01,
         **policy_kwargs):
     if isinstance(policy_network, str):
         network_type = policy_network
@@ -20,7 +20,8 @@ def build_policy(env, policy_network, value_network=None,
 
         extra_tensors = {}
 
-        X = observ_placeholder if observ_placeholder is not None else observation_placeholder(ob_space, batch_size=None)
+        X = observ_placeholder if observ_placeholder is not None \
+                else observation_placeholder(ob_space, batch_size=None)
 
         if mix_mode in ['mixreg', 'mixobs']:
             COEFF = tf.placeholder(tf.float32, [None])
@@ -49,8 +50,11 @@ def build_policy(env, policy_network, value_network=None,
                 if recurrent_tensors is not None:
                     # recurrent architecture, need a few more steps
                     nenv = nbatch // nsteps
-                    assert nenv > 0, 'Bad input for recurrent policy: batch size {} smaller than nsteps {}'.format(nbatch, nsteps)
-                    policy_latent, recurrent_tensors = policy_network(encoded_x, nenv)
+                    assert nenv > 0, 'Bad input for recurrent policy: batch ' \
+                            +'size {} smaller than nsteps {}'.format(
+                                    nbatch, nsteps)
+                    policy_latent, recurrent_tensors = policy_network(
+                            encoded_x, nenv)
                     extra_tensors.update(recurrent_tensors)
 
 

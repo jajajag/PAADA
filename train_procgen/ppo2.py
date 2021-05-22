@@ -27,7 +27,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # JAG: Add adversarial related parameters
         # adv = 0.5 means we use half augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
-        adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1},
+        adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1, 'nenv': 1},
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -118,9 +118,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     policy = build_policy(env, network, adv_gamma=adv_gamma, **network_kwargs)
 
     # Get the nb of env
-    # JAG
-    # TODO: We can limit the number of envs here!
+    # JAG: We limit the number of envs here.
+    # For generalization purpose, we only train with first n environments
     nenvs = env.num_envs
+    nenvs = int(nenvs * adv_ratio['nenv'])
 
     # JAG: We do not do data augmentaion to evaluation set
     eval_ratio = adv_ratio.copy()
@@ -239,6 +240,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                 # 0 to batch_size with batch_train_size step
                 # nbatch = nenvs * nsteps
                 # nbatch_train = nbatch // nminibatches
+                # The input array (ex. obs) has order
+                # [batch_1, batch_2, ..., batch_nenvs]
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
@@ -247,6 +250,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
         else:
             # recurrent version
+            # TODO: Check if modified nenvs works for recurrent version
             assert nenvs % nminibatches == 0
             envsperbatch = nenvs // nminibatches
             envinds = np.arange(nenvs)

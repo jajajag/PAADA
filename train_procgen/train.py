@@ -79,6 +79,9 @@ def main():
     # adv = 0 means we use original obs and value
     parser.add_argument('--adv_obs', type=float, default=1)
     parser.add_argument('--adv_value', type=float, default=1)
+    # Determine what percentage of environments we use (For generalization)
+    # nenv = 1 means we use all the environments
+    parser.add_argument('--adv_nenv', type=float, default=1)
     args = parser.parse_args()
 
     # Setup test worker
@@ -125,7 +128,9 @@ def main():
     adv_ratio={
             'adv': args.adv_adv,
             'obs': args.adv_obs,
-            'value': args.adv_value}
+            'value': args.adv_value,
+            'nenv': args.adv_nenv,
+    }
 
     # Setup Tensorflow
     logger.info("creating tf session")
