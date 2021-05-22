@@ -162,12 +162,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             adv_thresh=adv_thresh, adv_ratio=adv_ratio,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
+        # JAG: We do not perform adversarial in the testing environment
+        eval_ratio = adv_ratio.copy()
+        eval_ratio['adv_adv'] = 0
         eval_runner = RunnerWithAugs(
                 env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
-                # JAG: Pass adversarial related parameters
-                # TODO: For evaluation set, we do nothing
+                # Pass adversarial related parameters
                 adv_epsilon=adv_epsilon, adv_lr=adv_lr,
-                adv_thresh=adv_thresh, adv_ratio=adv_ratio,
+                adv_thresh=adv_thresh, adv_ratio=eval_ratio,
                 data_aug=data_aug, is_train=False)
 
     epinfobuf = deque(maxlen=100)

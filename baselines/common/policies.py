@@ -82,11 +82,9 @@ class PolicyWithValue(object):
         # Remember the input has shape (128, 64, 64, 3), 128 is the num envs
         # We should keep the first dimension of loss -> the number of envs
         self.axes = tuple(range(1, len(self.X.shape)))
+
         # Minimize \nabla_s {\pi_\theta * Adv} + gamma * (obs - old_obs) ^ 2
         # = \nabla_s {\pi_\theta * (reward - V)} + gamma * (obs - old_obs) ^ 2
-
-        # TODO: Check the sign of self.neglogp
-        # TODO: Use PPO loss
         self.loss = -self.neglogp * (self.reward - self.vf) \
                + self.adv_gamma * tf.reduce_sum(
                        tf.square(self.X - self.old_X), self.axes)

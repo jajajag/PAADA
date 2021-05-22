@@ -59,7 +59,6 @@ def main():
     parser.add_argument('--mix_alpha', type=float, default=0.2)
 
     # JAG: Parameters for adversarial RL
-    # TODO: change replace name to adv
     # 1. The ending condition for adversarial gradient descent
     parser.add_argument('--adv_epsilon', type=float, default=5e-6)
     # 2. Learning rate for adversarial gradient descent

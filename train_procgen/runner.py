@@ -116,8 +116,8 @@ class RunnerWithAugs(Runner):
             #reward = mb_rewards[t]
             obs = mb_obs[t].copy().astype(np.float32)
 
-            # TODO: Flatten the list, then do gradient to all batches (not
-            # enough meory)
+            # JAG: We can flatten the list and do gradient to all batches
+            # However, the memories of our machines are limited to do this
             # Gradient descent on observations
             for it in range(MAX_ITER):
                 # Do gradient descent to the observations
