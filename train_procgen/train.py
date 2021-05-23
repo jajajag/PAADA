@@ -81,6 +81,8 @@ def main():
     # Determine what percentage of environments we use (For generalization)
     # nenv = 1 means we use all the environments
     parser.add_argument('--adv_nenv', type=float, default=1)
+    # 8. Hyperparameter adv_lambda for kl divergence
+    parser.add_argument('--adv_lambda', type=float, default=0.01)
     args = parser.parse_args()
 
     # Setup test worker
@@ -152,6 +154,10 @@ def main():
     conv_fn = lambda x: build_impala_cnn(
             x, depths=depths, use_bn=args.use_bn,
             randcnn=args.use_rand_conv and not is_test_worker)
+    # JAG: Create another network for adversarial policy
+    adv_conv_fn = lambda x: build_impala_cnn(
+            x, depths=depths, use_bn=args.use_bn,
+            randcnn=args.use_rand_conv and not is_test_worker)
 
     # Training
     logger.info("training")
@@ -160,6 +166,8 @@ def main():
         env=venv,
         network=conv_fn,
         total_timesteps=timesteps_per_proc,
+        # JAG: Pass adv_network here
+        adv_network=adv_conv_fn,
         save_interval=0,
         nsteps=nsteps,
         nminibatches=nminibatches,
@@ -183,7 +191,20 @@ def main():
             mix_mode=args.mix_mode,
             mix_alpha=args.mix_alpha,
             use_l2reg=args.use_l2reg,
-            l2reg_coeff=args.l2reg_coeff),
+            l2reg_coeff=args.l2reg_coeff,
+            adv_lambda=args.adv_lambda,
+            # JAG: Pass default scope
+            scope='ppo2_model',
+            ),
+        adv_model_fn=get_mixreg_model(
+            mix_mode=args.mix_mode,
+            mix_alpha=args.mix_alpha,
+            use_l2reg=args.use_l2reg,
+            l2reg_coeff=args.l2reg_coeff,
+            adv_lambda=args.adv_lambda,
+            # JAG: Pass adv scope
+            scope='adv_ppo2_model',
+            ),
         # JAG: Pass adversarial parameters
         adv_epsilon=args.adv_epsilon,
         adv_lr=args.adv_lr,

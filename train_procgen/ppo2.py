@@ -19,11 +19,15 @@ def constfn(val):
         return val
     return f
 
-def learn(*, network, env, total_timesteps, eval_env = None, seed=None, 
-        nsteps=2048, ent_coef=0.0, lr=3e-4, vf_coef=0.5, max_grad_norm=0.5,
-        gamma=0.99, lam=0.95, log_interval=10, nminibatches=4, noptepochs=4,
-        cliprange=0.2, data_aug="no_aug", use_rand_conv=False, save_interval=0,
-        load_path=None, model_fn=None, update_fn=None, init_fn=None,
+def learn(*, network, env, total_timesteps, adv_network,
+        # JAG: Pass adv_network here
+        eval_env = None, seed=None, nsteps=2048, ent_coef=0.0, lr=3e-4,
+        vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95, log_interval=10,
+        nminibatches=4, noptepochs=4, cliprange=0.2, data_aug="no_aug",
+        use_rand_conv=False, save_interval=0, load_path=None,
+        update_fn=None, init_fn=None,
+        # JAG: Pass tf session here
+        model_fn=None, adv_model_fn=None,
         # JAG: Add adversarial related parameters
         # adv = 0.5 means we use half augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
@@ -116,6 +120,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
 
     # JAG: Pass adv_gamma to the policy builder
     policy = build_policy(env, network, adv_gamma=adv_gamma, **network_kwargs)
+    # Build adversarial policy
+    adv_policy = build_policy(env, adv_network, adv_gamma=adv_gamma,
+            **network_kwargs)
 
     # Get the nb of env
     # JAG: We limit the number of envs here.
@@ -123,9 +130,11 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     nenvs = env.num_envs
     nenvs = int(nenvs * adv_ratio['nenv'])
 
-    # JAG: We do not do data augmentaion to evaluation set
+    # JAG: We do not perform adversarial in the testing environment
     eval_ratio = adv_ratio.copy()
     eval_ratio['adv'] = 0
+    # Force the adv_adv to 1
+    adv_ratio['adv'] = 1
 
     # Get state_space and action_space
     ob_space = env.observation_space
@@ -147,12 +156,25 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm,
             comm=comm, mpi_rank_weight=mpi_rank_weight)
 
+    # Create adversarial model
+    adv_model = adv_model_fn(
+            policy=adv_policy, ob_space=ob_space, ac_space=ac_space,
+            nbatch_act=nenvs, nbatch_train=nbatch_train, nsteps=nsteps,
+            ent_coef=ent_coef, vf_coef=vf_coef, max_grad_norm=max_grad_norm,
+            comm=comm, mpi_rank_weight=mpi_rank_weight)
+
+    # JAG: Load adv_model
     if load_path is not None:
         model.load(load_path)
+        adv_model.load(load_path)
         if model.fix_representation:
             model.sess.run(model._init_op)
             if MPI is not None:
                 model._sync_param()
+        if adv_model.fix_representation:
+            adv_model.sess.run(adv_model._init_op)
+            if MPI is not None:
+                adv_model._sync_param()
 
     # Instantiate the runner object
     runner = RunnerWithAugs(
@@ -162,9 +184,6 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             adv_thresh=adv_thresh, adv_ratio=adv_ratio,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
-        # JAG: We do not perform adversarial in the testing environment
-        eval_ratio = adv_ratio.copy()
-        eval_ratio['adv_adv'] = 0
         eval_runner = RunnerWithAugs(
                 env=eval_env, model=model, nsteps=nsteps, gamma=gamma, lam=lam,
                 # Pass adversarial related parameters
@@ -207,19 +226,25 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
 
         if use_rand_conv and mpi_rank_weight > 0:
             model.sess.run(init_process)
+            # Run adv_model
+            adv_model.sess.run(init_process)
             logger.info('Randomizing parameters...')
 
         # JAG: update parameter passes the current number of epochs
+        # We return adversarial data from the runner
         # Sample batch data here
-        (obs, returns, masks, actions, values, neglogpacs, states,
-                epinfos) = runner.run(update)
+        # Also sample adversarial data from original policy
+        ((obs, returns, masks, actions, values,
+            neglogpacs, states, epinfos),
+         (adv_obs, adv_returns, adv_masks, adv_actions, adv_values,
+            adv_neglogpacs, adv_states, adv_epinfos)) = runner.run(update)
         #pylint: disable=E0632
 
         if eval_env is not None:
             # JAG: update parameter passes the current number of epochs
             (eval_obs, eval_returns, eval_masks, eval_actions,
                     eval_values, eval_neglogpacs, eval_states,
-                    eval_epinfos) = eval_runner.run(update)
+                    eval_epinfos) = eval_runner.run(update)[0]
             #pylint: disable=E0632
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
@@ -247,9 +272,18 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
+                    # JAG: We first train adv_model here
+                    adv_slices = (arr[mbinds] for arr in (adv_obs, adv_returns,
+                        adv_masks, adv_actions, adv_values, adv_neglogpacs))
+                    adv_model.train(lrnow, cliprangenow, *adv_slices)
+                    # Get adv_neglogpacs from adv_model
+                    _, _, _, adv_neglogpacs = adv_model.step(
+                            obs, S=states, M=masks)
                     slices = (arr[mbinds] for arr in (obs, returns, masks,
                         actions, values, neglogpacs))
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                    # Feed adv_neglogpacs to train original model
+                    mblossvals.append(model.train(lrnow, cliprangenow, *slices,
+                        adv_neglogpacs=adv_neglogpacs))
         else:
             # recurrent version
             # TODO: Check if modified nenvs works for recurrent version
@@ -268,6 +302,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                     mbstates = states[mbenvinds]
                     mblossvals.append(
                             model.train(lrnow, cliprangenow, *slices, mbstates))
+                    # TODO: Perform adv train here
 
         # Feedforward --> get losses --> update
         lossvals = np.mean(mblossvals, axis=0)
@@ -309,6 +344,9 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             savepath = osp.join(checkdir, '%.5i'%update)
             print('Saving to', savepath)
             model.save(savepath)
+            # JAG: Save adv_model here (actually no need)
+            adv_savepath = osp.join(checkdir, 'adv_%.5i' % update)
+            adv_model.save(adv_savepath)
 
     return model
 

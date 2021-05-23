@@ -15,14 +15,19 @@ except ImportError:
 
 from .utils import reduce_std
 
-def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2, use_l2reg=False,
-        l2reg_coeff=1e-4, fix_representation=False):
+# JAG: Pass adv_lambda for kl divergence
+def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2,
+        adv_lambda=0.01, scope='ppo2_model',
+        use_l2reg=False, l2reg_coeff=1e-4, fix_representation=False,):
     def model_fn(*args, **kwargs):
         kwargs['mix_mode'] = mix_mode
         kwargs['mix_alpha'] = mix_alpha
         kwargs['use_l2reg'] = use_l2reg
         kwargs['l2reg_coeff'] = l2reg_coeff
         kwargs['fix_representation'] = fix_representation
+        # JAG: adv_lambda
+        kwargs['adv_lambda'] = adv_lambda
+        kwargs['scope'] = scope
         return MixregModel(**kwargs)
     return model_fn
 
@@ -43,13 +48,15 @@ class MixregModel:
                 nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1,
                 comm=None, microbatch_size=None, mix_mode='nomix',
                 mix_alpha=0.2, fix_representation=False, use_l2reg=False,
+                # JAG: Add adv_lambda and sope
+                adv_lambda=0.01, scope='ppo2_model',
                 l2reg_coeff=1e-4):
         self.sess = sess = get_session()
 
         if MPI is not None and comm is None:
             comm = MPI.COMM_WORLD
 
-        with tf.variable_scope('ppo2_model', reuse=tf.AUTO_REUSE):
+        with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
             # CREATE OUR TWO MODELS
             # act_model that is used for sampling
             act_model = policy(nbatch_act, 1, sess)
@@ -68,6 +75,8 @@ class MixregModel:
         self.R = R = tf.placeholder(tf.float32, [None])
         # Keep track of old actor
         self.OLDNEGLOGPAC = OLDNEGLOGPAC = tf.placeholder(tf.float32, [None])
+        # JAG: Keep track of adv actor
+        self.ADVNEGLOGPAC = ADVNEGLOGPAC = tf.placeholder(tf.float32, [None])
         # Keep track of old critic
         self.OLDVPRED = OLDVPRED = tf.placeholder(tf.float32, [None])
         self.LR = LR = tf.placeholder(tf.float32, [])
@@ -84,6 +93,9 @@ class MixregModel:
             OLDNEGLOGPAC = coeff * tf.gather(OLDNEGLOGPAC, indices, axis=0) \
                     + (1 - coeff) * tf.gather(
                             OLDNEGLOGPAC, other_indices, axis=0)
+            ADVNEGLOGPAC = coeff * tf.gather(ADVNEGLOGPAC, indices, axis=0) \
+                    + (1 - coeff) * tf.gather(
+                            ADVNEGLOGPAC, other_indices, axis=0)
             OLDVPRED = coeff * tf.gather(OLDVPRED, indices, axis=0) \
                     + (1 - coeff) * tf.gather(OLDVPRED, other_indices, axis=0)
             R = coeff * tf.gather(R, indices, axis=0) \
@@ -96,6 +108,7 @@ class MixregModel:
             indices = train_model.indices
             # gather
             OLDNEGLOGPAC = tf.gather(OLDNEGLOGPAC, train_model.indices, axis=0)
+            ADVNEGLOGPAC = tf.gather(ADVNEGLOGPAC, train_model.indices, axis=0)
             OLDVPRED = tf.gather(OLDVPRED, train_model.indices, axis=0)
             R = tf.gather(R, train_model.indices, axis=0)
             ADV = tf.gather(ADV, train_model.indices, axis=0)
@@ -139,6 +152,12 @@ class MixregModel:
         # Total loss
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
 
+        # JAG: Calculate kl divergence for original policy and adversarial
+        # policy
+        advkl = .5 * tf.reduce_mean(tf.square(neglogpac - ADVNEGLOGPAC))
+        if scope == 'ppo2_model':
+            loss += adv_lambda * advkl
+
         # Record some information
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(
@@ -164,7 +183,7 @@ class MixregModel:
 
         ############ UPDATE THE PARAMETERS ############
         # 1. Get the model parameters
-        params = tf.trainable_variables('ppo2_model')
+        params = tf.trainable_variables(scope)
         if use_l2reg:
             weight_params = [v for v in params if '/b' not in v.name]
             l2_loss = tf.reduce_sum([tf.nn.l2_loss(v) for v in weight_params])
@@ -173,6 +192,7 @@ class MixregModel:
             loss = loss + l2_loss * l2reg_coeff
         if fix_representation:
             params = params[-4:]
+
         # 2. Build our trainer
         if comm is not None and comm.Get_size() > 1:
             self.trainer = MpiAdamOptimizer(comm, learning_rate=LR,
@@ -180,13 +200,16 @@ class MixregModel:
         else:
             self.trainer = tf.train.AdamOptimizer(
                     learning_rate=LR, epsilon=1e-5)
+
         # 3. Calculate the gradients
         grads_and_var = self.trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
+
         # 4. Clip the gradient if required
         if max_grad_norm is not None:
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
         grads_and_var = list(zip(grads, var))
+
         ###############################################
 
         self.grads = grads
@@ -219,7 +242,8 @@ class MixregModel:
             #pylint: disable=E1101
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values,
-            neglogpacs, states=None):
+            neglogpacs, states=None, adv_neglogpacs=None):
+        # JAG: Pass adv_neglogpacs if it is not None
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
         advs = returns - values
@@ -254,4 +278,9 @@ class MixregModel:
         else:
             raise ValueError(f"Unknown mixing mode: {self.mix_mode} !")
 
+        # JAG: Feed adv_neglogpacs
+        if adv_neglogpacs is not None:
+            td_map[ADVNEGLOGPAC] = adv_neglogpacs
+            
         return self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
+

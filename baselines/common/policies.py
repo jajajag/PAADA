@@ -165,6 +165,7 @@ class PolicyWithValue(object):
 
         return self.sess.run(self.grads, feed_dict)
 
+
 def build_policy(env, policy_network, value_network=None,  normalize_observations=False, estimate_q=False, **policy_kwargs):
     if isinstance(policy_network, str):
         network_type = policy_network
