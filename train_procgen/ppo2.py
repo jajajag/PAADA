@@ -221,7 +221,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
 
-        epinfobuf.extend(epinfos)
+        # JAG: For the train return, we only report the first few nenvs
+        epinfobuf.extend(epinfos[:nbatch])
         if eval_env is not None:
             eval_epinfobuf.extend(eval_epinfos)
 
