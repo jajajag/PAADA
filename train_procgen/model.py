@@ -165,6 +165,10 @@ class MixregModel:
         ############ UPDATE THE PARAMETERS ############
         # 1. Get the model parameters
         params = tf.trainable_variables('ppo2_model')
+        # JAG: Place holder for mean teacher model
+        self.params_holders = [
+            tf.placeholder(tf.float32, shape=param.shape) for param in params]
+
         if use_l2reg:
             weight_params = [v for v in params if '/b' not in v.name]
             l2_loss = tf.reduce_sum([tf.nn.l2_loss(v) for v in weight_params])
@@ -187,6 +191,7 @@ class MixregModel:
         if max_grad_norm is not None:
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
         grads_and_var = list(zip(grads, var))
+
         ###############################################
 
         self.grads = grads
@@ -194,6 +199,12 @@ class MixregModel:
         self._train_op = self.trainer.apply_gradients(grads_and_var)
         self._init_op = tf.variables_initializer(params)
         self._sync_param = lambda: sync_from_root(sess, params, comm=comm)
+
+        # JAG: Mean teacher model
+        # Assign new params to the params to replace network weights
+        self.assign = [tf.assign(
+            params[i], self.params_holders[i]) for i in range(len(params))]
+        self.params = params
 
         self.mix_mode = mix_mode
         self.mix_alpha = mix_alpha
@@ -254,4 +265,18 @@ class MixregModel:
         else:
             raise ValueError(f"Unknown mixing mode: {self.mix_mode} !")
 
-        return self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
+        # JAG: Also return the student model
+        return self.sess.run(
+                self.stats_list + [self._train_op], td_map)[:-1]
+
+    # Teacher function assign parameters to the network
+    def teacher(self, params):
+        td_map = {}
+        for i in range(len(params)):
+            td_map[self.params_holders[i]] = params[i]
+
+        return self.sess.run(self.assign, td_map)
+
+    # Student function returns network parameters
+    def student(self):
+        return self.sess.run(self.params)

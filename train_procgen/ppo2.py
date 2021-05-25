@@ -28,6 +28,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # adv = 0.5 means we use half augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
         adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1, 'nenv': 1},
+        adv_alpha=0.1, adv_epochs=500,
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -187,6 +188,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     tfirststart = time.perf_counter()
 
     nupdates = total_timesteps//nbatch
+    # JAG: We only need first N updates
+    nupdates = adv_epochs
     for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0
         # Start timer
@@ -229,11 +232,15 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # Here what we're going to do is for each minibatch calculate the loss
         # and append it.
         mblossvals = []
+        # JAG: 0. Initialize student and teacher model
+        teacher, student = model.student(), model.student()
         if states is None:
             # nonrecurrent version
             # Index of each element of batch_size
             # Create the indices array
             inds = np.arange(nbatch)
+            # JAG: 1. Backtrack to student model
+            model.teacher(student)
             for _ in range(noptepochs):
                 # Randomize the indexes
                 np.random.shuffle(inds)
@@ -248,6 +255,13 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                     slices = (arr[mbinds] for arr in (obs, returns, masks,
                         actions, values, neglogpacs))
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+            # JAG: 2. Update student model
+            student = model.student()
+            # JAG: 3. Update teacher model
+            teacher = [adv_alpha * teacher[i] + (1 - adv_alpha) * student[i] \
+                    for i in range(len(teacher))]
+            model.teacher(teacher)
+
         else:
             # recurrent version
             # TODO: Check if modified nenvs works for recurrent version

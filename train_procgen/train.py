@@ -81,6 +81,10 @@ def main():
     # Determine what percentage of environments we use (For generalization)
     # nenv = 1 means we use all the environments
     parser.add_argument('--adv_nenv', type=float, default=1)
+    # 8. Hyperparameter for mean teacher model (Try 0.1 or 0.2)
+    parser.add_argument('--adv_alpha', type=float, default=0)
+    # 9. We test the first 500 epochs
+    parser.add_argument('--adv_epochs', type=int, default=500)
     args = parser.parse_args()
 
     # Setup test worker
@@ -191,6 +195,8 @@ def main():
         adv_thresh=args.adv_thresh,
         adv_ratio=adv_ratio,
         eval_env=eval_env,
+        adv_alpha=args.adv_alpha,
+        adv_epochs=args.adv_epochs,
     )
 
     # Saving
