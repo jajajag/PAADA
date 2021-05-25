@@ -28,6 +28,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         # adv = 0.5 means we use half augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
         adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1, 'nenv': 1},
+        adv_epochs=500,
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -187,6 +188,8 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     tfirststart = time.perf_counter()
 
     nupdates = total_timesteps//nbatch
+    # JAG: We only need first N updates
+    nupdates = adv_epochs
     for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0
         # Start timer
