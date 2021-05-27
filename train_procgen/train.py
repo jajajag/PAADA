@@ -142,7 +142,10 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = gpus_id[rank]
     setup_mpi_gpus()
     config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True  # pylint: disable=E1101
+    # pylint: disable=E1101
+    config.gpu_options.allow_growth = True
+    # We only use 33.3% GPU memory
+    config.gpu_options.per_process_gpu_memory_fraction = 0.333
     sess = tf.Session(config=config)
     sess.__enter__()
 
