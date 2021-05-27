@@ -81,6 +81,12 @@ class RunnerWithAugs(Runner):
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
         last_values = self.model.value(self.obs, S=self.states, M=self.dones)
 
+        # JAG: Create adversarial data
+        # We only keep two arrs because we only modify two of them (
+        adv_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
+        adv_values = np.asarray(mb_values, dtype=np.float32)
+        adv_returns = np.zeros_like(mb_rewards)
+
         # discount/bootstrap off value fn
         mb_returns = np.zeros_like(mb_rewards)
         mb_advs = np.zeros_like(mb_rewards)
@@ -91,15 +97,6 @@ class RunnerWithAugs(Runner):
         np.random.shuffle(adv_ind)
         adv_ind = adv_ind[:int(self.nsteps * self.adv_ratio['adv'])]
 
-        # JAG: Create adversarial data
-        adv_obs = mb_obs.copy()
-        adv_returns = mb_returns.copy()
-        adv_dones = mb_dones.copy()
-        adv_actions = mb_actions.copy()
-        adv_values = mb_values.copy()
-        adv_neglogpacs = mb_neglogpacs.copy()
-        adv_states = mb_states
-        adv_epinfos = epinfos.copy()
 
         for t in reversed(range(self.nsteps)):
             if t == self.nsteps - 1:
@@ -150,9 +147,7 @@ class RunnerWithAugs(Runner):
                     + (1 - self.adv_ratio['value']) * mb_values[t]
 
         mb_returns = mb_advs + mb_values
-        # JAG: Calculate returns for adversarial returns
-        adv_advs = mb_advs.copy()
-        adv_returns = adv_advs + adv_values
+        adv_returns = mb_advs + adv_values
 
         if self.data_aug != 'no_aug' and self.is_train:
             self.aug_func.change_randomization_params_all()
@@ -161,8 +156,7 @@ class RunnerWithAugs(Runner):
         # The obs has shape 256 * (128, 64, 64, 3), where 128 is num_env
         # sf01 flatten obs to 256 * 128 * (64, 64, 3)
         # Then, mb_obs[a][b] will be mb_obs[b * 256 + a]
-        return ((*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions,
-                mb_values, mb_neglogpacs)), mb_states, epinfos),
+        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions,
                 # JAG: Create a copy of augmented data
-                (*map(sf01, (adv_obs, adv_returns, adv_dones, adv_actions,
-                adv_values, adv_neglogpacs)), adv_states, adv_epinfos))
+                mb_values, mb_neglogpacs, adv_obs, adv_returns, adv_values)),
+                mb_states, epinfos)

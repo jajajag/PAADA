@@ -27,7 +27,7 @@ def learn(*, network, env, total_timesteps, adv_network,
         use_rand_conv=False, save_interval=0, load_path=None,
         update_fn=None, init_fn=None,
         # JAG: Pass tf session here
-        model_fn=None, adv_model_fn=None,
+        model_fn=None, adv_model_fn=None, adv_epochs=500,
         # JAG: Add adversarial related parameters
         # adv = 0.5 means we use half augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
@@ -209,6 +209,8 @@ def learn(*, network, env, total_timesteps, adv_network,
     tfirststart = time.perf_counter()
 
     nupdates = total_timesteps//nbatch
+    # JAG: We only need first N updates
+    nupdates = adv_epochs
     for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0
         # Start timer
@@ -234,17 +236,17 @@ def learn(*, network, env, total_timesteps, adv_network,
         # We return adversarial data from the runner
         # Sample batch data here
         # Also sample adversarial data from original policy
-        ((obs, returns, masks, actions, values,
-            neglogpacs, states, epinfos),
-         (adv_obs, adv_returns, adv_masks, adv_actions, adv_values,
-            adv_neglogpacs, adv_states, adv_epinfos)) = runner.run(update)
+        (obs, returns, masks, actions, values, neglogpacs,
+                adv_obs, adv_returns, adv_values,
+                states, epinfos) = runner.run(update)
         #pylint: disable=E0632
 
         if eval_env is not None:
             # JAG: update parameter passes the current number of epochs
-            (eval_obs, eval_returns, eval_masks, eval_actions,
-                    eval_values, eval_neglogpacs, eval_states,
-                    eval_epinfos) = eval_runner.run(update)[0]
+            (eval_obs, eval_returns, eval_masks, eval_actions, eval_values,
+                    eval_neglogpacs,
+                    eval_adv_obs, eval_adv_returns, eval_adv_values,
+                    eval_states, eval_epinfos) = eval_runner.run(update)
             #pylint: disable=E0632
 
         if update % log_interval == 0 and is_mpi_root: logger.info('Done.')
@@ -274,7 +276,7 @@ def learn(*, network, env, total_timesteps, adv_network,
                     mbinds = inds[start:end]
                     # JAG: We first train adv_model here
                     adv_slices = (arr[mbinds] for arr in (adv_obs, adv_returns,
-                        adv_masks, adv_actions, adv_values, adv_neglogpacs))
+                        masks, actions, adv_values, neglogpacs))
                     adv_model.train(lrnow, cliprangenow, *adv_slices)
                     # Get adv_neglogpacs from adv_model
                     _, _, _, adv_neglogpacs = adv_model.step(
