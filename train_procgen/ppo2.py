@@ -282,10 +282,10 @@ def learn(*, network, env, total_timesteps, adv_network,
                     _, _, _, adv_neglogpacs = adv_model.step(
                             obs, S=states, M=masks)
                     slices = (arr[mbinds] for arr in (obs, returns, masks,
-                        actions, values, neglogpacs))
+                        actions, values, neglogpacs, adv_neglogpacs))
                     # Feed adv_neglogpacs to train original model
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices,
-                        adv_neglogpacs=adv_neglogpacs))
+                    mblossvals.append(
+                            model.train(lrnow, cliprangenow, *slices))
         else:
             # recurrent version
             # TODO: Check if modified nenvs works for recurrent version

@@ -242,7 +242,7 @@ class MixregModel:
             #pylint: disable=E1101
 
     def train(self, lr, cliprange, obs, returns, masks, actions, values,
-            neglogpacs, states=None, adv_neglogpacs=None):
+            neglogpacs, adv_neglogpacs=None, states=None):
         # JAG: Pass adv_neglogpacs if it is not None
         # Here we calculate advantage A(s,a) = R + yV(s') - V(s)
         # Returns = R + yV(s')
