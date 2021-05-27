@@ -144,8 +144,8 @@ def main():
     config = tf.ConfigProto()
     # pylint: disable=E1101
     config.gpu_options.allow_growth = True
-    # We only use 33.3% GPU memory
-    config.gpu_options.per_process_gpu_memory_fraction = 0.333
+    # JAG: We only use X% GPU memory
+    config.gpu_options.per_process_gpu_memory_fraction = 1
     sess = tf.Session(config=config)
     sess.__enter__()
 

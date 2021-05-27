@@ -280,7 +280,7 @@ class MixregModel:
 
         # JAG: Feed adv_neglogpacs
         if adv_neglogpacs is not None:
-            td_map[ADVNEGLOGPAC] = adv_neglogpacs
+            td_map[self.ADVNEGLOGPAC] = adv_neglogpacs
             
         return self.sess.run(self.stats_list + [self._train_op], td_map)[:-1]
 
