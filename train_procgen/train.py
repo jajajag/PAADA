@@ -116,21 +116,35 @@ def main():
 
     # Create env
     logger.info("creating environment")
+
+    # JAG: Limit the maximum training levels
+    train_levels = int(num_levels * args.adv_nenv)
     venv = ProcgenEnv(
-            num_envs=num_envs, env_name=env_name, num_levels=num_levels,
+            num_envs=num_envs, env_name=env_name, num_levels=train_levels,
             start_level=start_level, distribution_mode=args.distribution_mode)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
 
+
     # JAG: If we use eval_env
-    eval_env = venv if args.eval_env else None
+    if args.eval_env:
+        eval_env = ProcgenEnv(
+                num_envs=num_envs, env_name=env_name, num_levels=num_levels,
+                start_level=start_level,
+                distribution_mode=args.distribution_mode)
+        eval_env = VecExtractDictObs(eval_env, "rgb")
+        eval_env = VecMonitor(venv=eval_env, filename=None, keep_buf=100)
+        eval_env = VecNormalize(venv=eval_env, ob=False)
+    else:
+        eval_env = None
+
     # Feed parameters to a dictionary
     adv_ratio={
             'adv': args.adv_adv,
             'obs': args.adv_obs,
             'value': args.adv_value,
-            'nenv': args.adv_nenv,
+            #'nenv': args.adv_nenv,
     }
 
     # Setup Tensorflow

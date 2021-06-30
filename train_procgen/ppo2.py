@@ -122,7 +122,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     # JAG: We limit the number of envs here.
     # For generalization purpose, we only train with first n environments
     nenvs = env.num_envs
-    nenvs = int(nenvs * adv_ratio['nenv'])
+    #nenvs = int(nenvs * adv_ratio['nenv'])
 
     # JAG: We do not perform adversarial in the testing environment
     eval_ratio = adv_ratio.copy()
