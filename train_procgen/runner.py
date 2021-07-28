@@ -158,7 +158,6 @@ class RunnerWithAugs(Runner):
         # If we mixup corresponding observations
         if self.adv_mixup['mode'] == 'fixed':
             #mb_obs = mb_obs * obs_coef + adv_obs * (1 - obs_coef)
-            #mb_values = mb_values * coef + adv_values * (1 - coef)
             mb_obs = self.mix_multiply(mb_obs, adv_obs, coef)
             mb_values = self.mix_multiply(mb_values, adv_values, coef)
         # If we mixup observations randomly
@@ -167,12 +166,12 @@ class RunnerWithAugs(Runner):
             seq_ind = np.arange(self.nsteps)
             mix_ind = np.random.permutation(self.nsteps)
             # Do mixup
-            mb_obs = mb_obs * obs_coef + adv_obs[mix_ind] * (1 - obs_coef)
-            mb_values = mb_values * coef + adv_values[mix_ind] * (1 - coef)
-            mb_advs = mb_advs * coef + mb_advs[mix_ind] * (1 - coef)
+            mb_obs = self.mix_multiply(mb_obs, adv_obs[mix_ind], coef)
+            mb_values = self.mix_multiply(mb_values, adv_values[mix_ind], coef)
+            mb_advs = self.mix_multiply(mb_advs, mb_advs[mix_ind], coef)
             mb_returns = mb_advs + mb_values
-            mb_neglogpacs = mb_neglogpacs * coef \
-                    + mb_neglogpacs[mix_ind] * (1 - coef)
+            mb_neglogpacs = self.mix_multiply(
+                    mb_neglogpacs, mb_neglogpacs[mix_ind], coef)
             # Select actions with higher probabilities
             ind = np.where(coef > 0.5, seq_ind, mix_ind)
             mb_actions = mb_actions[ind]
