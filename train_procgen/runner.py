@@ -154,14 +154,13 @@ class RunnerWithAugs(Runner):
         # Do the mixup with random beta distribution
         else:
             pass
-        # Reshape the coef to high dimensions
-        coef = np.expand_dims(coef, axis=[i for i in range(1, mb_values.ndim)])
-        obs_coef = np.expand_dims(coef, axis=[i for i in range(1, mb_obs.ndim)])
 
         # If we mixup corresponding observations
         if self.adv_mixup['mode'] == 'fixed':
-            mb_obs = mb_obs * obs_coef + adv_obs * (1 - obs_coef)
-            mb_values = mb_values * coef + adv_values * (1 - coef)
+            #mb_obs = mb_obs * obs_coef + adv_obs * (1 - obs_coef)
+            #mb_values = mb_values * coef + adv_values * (1 - coef)
+            mb_obs = self.mix_multiply(mb_obs, adv_obs, coef)
+            mb_values = self.mix_multiply(mb_values, adv_values, coef)
         # If we mixup observations randomly
         elif self.adv_mixup['mode'] == 'random':
             # Randomly generate indices
@@ -175,7 +174,7 @@ class RunnerWithAugs(Runner):
             mb_neglogpacs = mb_neglogpacs * coef \
                     + mb_neglogpacs[mix_ind] * (1 - coef)
             # Select actions with higher probabilities
-            ind = np.where(coef.flatten() > 0.5, seq_ind, mix_ind)
+            ind = np.where(coef > 0.5, seq_ind, mix_ind)
             mb_actions = mb_actions[ind]
             # Do nothing to dones (maybe)
             #mb_dones = 
@@ -189,3 +188,9 @@ class RunnerWithAugs(Runner):
         # Then, mb_obs[a][b] will be mb_obs[b * 256 + a]
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values,
             mb_neglogpacs)), mb_states, epinfos)
+
+    def mix_multiply(self, mb, adv, coef):
+        for i in range(mb.shape[0]):
+            mb[i] = mb[i] * coef[i] + adv[i] * (1 - coef[i])
+        return mb
+
