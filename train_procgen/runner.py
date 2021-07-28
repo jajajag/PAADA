@@ -155,7 +155,7 @@ class RunnerWithAugs(Runner):
         else:
             pass
         # Reshape the coef to high dimensions
-        coef = np.expand_dims(coef, axis=mb_obs.shape[1:])
+        coef = np.expand_dims(coef, axis=[i for i in range(1, mb_obs.ndim)])
 
         # If we mixup corresponding observations
         if self.adv_mixup['mode'] == 'fixed':
