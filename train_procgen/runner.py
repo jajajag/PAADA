@@ -156,12 +156,12 @@ class RunnerWithAugs(Runner):
             pass
 
         # If we mixup corresponding observations
-        if self.adv_mixup['mode'] == 'fixed':
+        if self.adv_mixup['mode'] == 'fixed' and update > self.adv_thresh:
             #mb_obs = mb_obs * obs_coef + adv_obs * (1 - obs_coef)
             mb_obs = self.mix_multiply(mb_obs, adv_obs, coef)
             mb_values = self.mix_multiply(mb_values, adv_values, coef)
         # If we mixup observations randomly
-        elif self.adv_mixup['mode'] == 'random':
+        elif self.adv_mixup['mode'] == 'random' and update > self.adv_thresh:
             # Randomly generate indices
             seq_ind = np.arange(self.nsteps)
             mix_ind = np.random.permutation(self.nsteps)
