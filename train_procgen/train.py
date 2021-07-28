@@ -72,18 +72,28 @@ def main():
     # 6. The ratio of adversarial augmented data
     # adv = 1 means we replace original data with adversarial data
     # adv = 0 means we do not use adversarial
-    parser.add_argument('--adv_adv', type=float, default=0.5)
-    # 7. The ratio of mixup original data with augmented data
-    # adv = 1 means we use augmented obs and value
-    # adv = 0 means we use original obs and value
-    parser.add_argument('--adv_obs', type=float, default=1)
-    parser.add_argument('--adv_value', type=float, default=1)
+    parser.add_argument('--adv_ratio', type=float, default=0)
     # Determine what percentage of environments we use (For generalization)
     # nenv = 1 means we use all the environments
     parser.add_argument('--adv_nenv', type=float, default=1)
-    # 9. We test the first 500 epochs
+    # 7. We test the first 500 epochs
     parser.add_argument('--adv_epochs', type=int, default=500)
+    # 8. The parameter for beta distribution of the mixup
+    parser.add_argument('--adv_alpha', type=float, default=0.2)
+    # 9. Determine which kind of example is mostly mixuped
+    parser.add_argument('--adv_most', type=str, default='random',
+            choices=["random", "ori", "adv"])
+    # 10. Determine which kind of mixup is performed
+    parser.add_argument('--adv_mixup', type=str, default='nomix',
+            choices=["nomix", "fixed", "random"])
     args = parser.parse_args()
+
+    # Load mixup parameters into a dictionary
+    adv_mixup = {
+        'alpha': args.adv_alpha,
+        'most': args.adv_most,
+        'mode': args.adv_mixup
+    }
 
     # Setup test worker
     comm = MPI.COMM_WORLD
@@ -138,14 +148,6 @@ def main():
         eval_env = VecNormalize(venv=eval_env, ob=False)
     else:
         eval_env = None
-
-    # Feed parameters to a dictionary
-    adv_ratio={
-            'adv': args.adv_adv,
-            'obs': args.adv_obs,
-            'value': args.adv_value,
-            #'nenv': args.adv_nenv,
-    }
 
     # Setup Tensorflow
     logger.info("creating tf session")
@@ -205,9 +207,10 @@ def main():
         adv_lr=args.adv_lr,
         adv_gamma=args.adv_gamma,
         adv_thresh=args.adv_thresh,
-        adv_ratio=adv_ratio,
+        adv_ratio=args.adv_ratio,
         eval_env=eval_env,
         adv_epochs=args.adv_epochs,
+        adv_mixup=adv_mixup,
     )
 
     # Saving

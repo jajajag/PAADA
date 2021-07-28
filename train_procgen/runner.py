@@ -15,7 +15,7 @@ MAX_ITER = 50
 class RunnerWithAugs(Runner):
     def __init__(self, *, env, model, nsteps, gamma, lam,
             # JAG: Set up adversarial parameters
-            adv_epsilon, adv_lr, adv_ratio, adv_thresh,
+            adv_epsilon, adv_lr, adv_ratio, adv_thresh, adv_mixup,
             data_aug="no_aug", is_train=True):
         super().__init__(env=env, model=model, nsteps=nsteps, gamma=gamma,
                 lam=lam)
@@ -27,6 +27,7 @@ class RunnerWithAugs(Runner):
         self.adv_lr = adv_lr
         self.adv_ratio = adv_ratio
         self.adv_thresh = adv_thresh
+        self.adv_mixup = adv_mixup
 
         if self.is_train and self.data_aug != "no_aug":
             if self.data_aug == "cutout_color":
@@ -81,15 +82,19 @@ class RunnerWithAugs(Runner):
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
         last_values = self.model.value(self.obs, S=self.states, M=self.dones)
 
+        # JAG: Copy mb_obs and mb_values
+        adv_obs = mb_obs.copy()
+        adv_values = mb_values.copy()
+
         # discount/bootstrap off value fn
         mb_returns = np.zeros_like(mb_rewards)
         mb_advs = np.zeros_like(mb_rewards)
         lastgaelam = 0
 
         # JAG: We do adversarial to nsteps * ratio samples
-        adv_ind = [i for i in range(self.nsteps)]
-        np.random.shuffle(adv_ind)
-        adv_ind = adv_ind[:int(self.nsteps * self.adv_ratio['adv'])]
+        adv_ind = np.random.permutation(self.nsteps)
+        # adv_ratio is the percentage of adversarial examples
+        adv_ind = adv_ind[:int(self.nsteps * self.adv_ratio)]
 
         for t in reversed(range(self.nsteps)):
             if t == self.nsteps - 1:
@@ -114,7 +119,8 @@ class RunnerWithAugs(Runner):
             reward = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal \
                     + self.gamma * self.lam * nextnonterminal * lastgaelam
             #reward = mb_rewards[t]
-            obs = mb_obs[t].copy().astype(np.float32)
+            # Make a copy of mb_obs[t] as obs
+            #obs = mb_obs[t].copy().astype(np.float32)
 
             # JAG: We can flatten the list and do gradient to all batches
             # However, the memories of our machines are limited to do this
@@ -122,31 +128,59 @@ class RunnerWithAugs(Runner):
             for it in range(MAX_ITER):
                 # Do gradient descent to the observations
                 grads = self.model.adv_gradient(
-                        obs, reward, mb_actions[t], mb_obs[t])
+                        adv_obs[t], reward, mb_actions[t], mb_obs[t])
                 grads = np.array(grads[0])
-                obs -= self.adv_lr * grads
+                adv_obs[t] -= self.adv_lr * grads
                 # Exit the loop if the gradient is small enough
                 if np.mean(np.abs(grads)) < self.adv_epsilon: break
             # Actually, we compute value again after the last iter
-            value = self.model.value(obs)
-
-            # Save the adversarial observation and value
-            # Perform mixup here
-            # adv_ratio = 1 means we use adversarial samples
-            # adv_ratio = 0 means we use original samples
-            mb_obs[t] = self.adv_ratio['obs'] * obs \
-                    + (1 - self.adv_ratio['obs']) * mb_obs[t]
-            mb_values[t] = self.adv_ratio['value'] * value \
-                    + (1 - self.adv_ratio['value']) * mb_values[t]
-            # We choose with probability adv_mix is the value cannot be mixed
-            #rand = np.random.random()
-            #mb_actions[t] = actions if rand < self.adv_mix else mb_actions[t]
+            adv_values = self.model.value(adv_obs[t])
 
         mb_returns = mb_advs + mb_values
 
         if self.data_aug != 'no_aug' and self.is_train:
             self.aug_func.change_randomization_params_all()
             self.obs = self.aug_func.do_augmentation(obs)
+
+        # JAG: Randomly generate coefficient for mixup 
+        coef = np.random.beta(self.adv_mixup['alpha'], self.adv_mixup['alpha'],
+                size=(self.nsteps,))
+        # If we want the most to be adversarial examples
+        if self.adv_mixup['most'] == 'ori':
+            coef = np.where(coef > 0.5, coef, 1 - coef)
+        # If we want the most to be adversarial examples
+        elif self.adv_mixup['most'] == 'adv':
+            coef = np.where(coef > 0.5, 1 - coef, coef)
+        # Do the mixup with random beta distribution
+        else:
+            pass
+
+        # If we mixup corresponding observations
+        if self.adv_mixup['mode'] == 'fixed':
+            mb_obs = (mb_obs.T * coef).T + (adv_obs.T * (1 - coef)).T
+            mb_values = (mb_values.T * coef).T + (adv_values.T * (1 - coef)).T
+        # If we mixup observations randomly
+        elif self.adv_mixup['mode'] == 'random':
+            # Randomly generate indices
+            seq_ind = np.arange(self.nsteps)
+            mix_ind = np.random.permutation(self.nsteps)
+            # Do mixup
+            mb_obs = (mb_obs.T * coef).T + (adv_obs[mix_ind].T * (1 - coef)).T
+            mb_values = (mb_values.T * coef).T \
+                    + (adv_values[mix_ind].T * (1 - coef)).T
+            mb_advs = (mb_advs.T * coef).T + (mb_advs[mix_ind].T * (1 - coef)).T
+            mb_returns = mb_advs + mb_values
+            mb_neglogpacs = (mb_neglogpacs.T * coef).T \
+                    + (mb_neglogpacs[mix_ind] * (1 - coef)).T
+            # Select actions with higher probabilities
+            ind = np.where(coef > 0.5, seq_ind, mix_ind)
+            mb_actions = mb_actions[ind]
+            # Do nothing to dones (maybe)
+            #mb_dones = 
+        # If mixup mode is nomix
+        else:
+            mv_obs = adv_obs
+            mb_values = adv_values
 
         # The obs has shape 256 * (128, 64, 64, 3), where 128 is num_env
         # sf01 flatten obs to 256 * 128 * (64, 64, 3)

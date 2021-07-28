@@ -25,10 +25,10 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
         cliprange=0.2, data_aug="no_aug", use_rand_conv=False, save_interval=0,
         load_path=None, model_fn=None, update_fn=None, init_fn=None,
         # JAG: Add adversarial related parameters
-        # adv = 0.5 means we use half augmented data
+        # adv = 0 means we do not use augmented data
         adv_epsilon=5e-6, adv_lr=10, adv_thresh=50, adv_gamma=0.01,
-        adv_ratio={'adv': 0.5, 'obs': 1, 'value': 1, 'nenv': 1},
-        adv_epochs=500,
+        adv_ratio=0, adv_epochs=500,
+        adv_mixup={'alpha': 0.2, 'most': 'random', 'mode': 'nomix'},
         mpi_rank_weight=1, comm=None, **network_kwargs):
     '''
     Learn policy using PPO algorithm (https://arxiv.org/abs/1707.06347)
@@ -125,8 +125,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
     #nenvs = int(nenvs * adv_ratio['nenv'])
 
     # JAG: We do not perform adversarial in the testing environment
-    eval_ratio = adv_ratio.copy()
-    eval_ratio['adv'] = 0
+    eval_ratio = 0
 
     # Get state_space and action_space
     ob_space = env.observation_space
@@ -161,6 +160,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
             # JAG: Pass adversarial related parameters
             adv_epsilon=adv_epsilon, adv_lr=adv_lr,
             adv_thresh=adv_thresh, adv_ratio=adv_ratio,
+            adv_mixup=adv_mixup,
             data_aug=data_aug, is_train=mpi_rank_weight > 0)
     if eval_env is not None:
         eval_runner = RunnerWithAugs(
@@ -168,6 +168,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None,
                 # Pass adversarial related parameters
                 adv_epsilon=adv_epsilon, adv_lr=adv_lr,
                 adv_thresh=adv_thresh, adv_ratio=eval_ratio,
+                adv_mixup=adv_mixup,
                 data_aug=data_aug, is_train=False)
 
     epinfobuf = deque(maxlen=100)
