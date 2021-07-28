@@ -155,11 +155,12 @@ class RunnerWithAugs(Runner):
         else:
             pass
         # Reshape the coef to high dimensions
-        coef = np.expand_dims(coef, axis=[i for i in range(1, mb_obs.ndim)])
+        coef = np.expand_dims(coef, axis=[i for i in range(1, mb_values.ndim)])
+        obs_coef = np.expand_dims(coef, axis=[i for i in range(1, mb_obs.ndim)])
 
         # If we mixup corresponding observations
         if self.adv_mixup['mode'] == 'fixed':
-            mb_obs = mb_obs * coef + adv_obs * (1 - coef)
+            mb_obs = mb_obs * obs_coef + adv_obs * (1 - obs_coef)
             mb_values = mb_values * coef + adv_values * (1 - coef)
         # If we mixup observations randomly
         elif self.adv_mixup['mode'] == 'random':
@@ -167,7 +168,7 @@ class RunnerWithAugs(Runner):
             seq_ind = np.arange(self.nsteps)
             mix_ind = np.random.permutation(self.nsteps)
             # Do mixup
-            mb_obs = mb_obs * coef + adv_obs[mix_ind] * (1 - coef)
+            mb_obs = mb_obs * obs_coef + adv_obs[mix_ind] * (1 - obs_coef)
             mb_values = mb_values * coef + adv_values[mix_ind] * (1 - coef)
             mb_advs = mb_advs * coef + mb_advs[mix_ind] * (1 - coef)
             mb_returns = mb_advs + mb_values
