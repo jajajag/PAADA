@@ -154,26 +154,27 @@ class RunnerWithAugs(Runner):
         # Do the mixup with random beta distribution
         else:
             pass
+        # Reshape the coef to high dimensions
+        coef = np.expand_dims(coef, axis=mb_obs.shape[1:])
 
         # If we mixup corresponding observations
         if self.adv_mixup['mode'] == 'fixed':
-            mb_obs = (mb_obs.T * coef).T + (adv_obs.T * (1 - coef)).T
-            mb_values = (mb_values.T * coef).T + (adv_values.T * (1 - coef)).T
+            mb_obs = mb_obs * coef + adv_obs * (1 - coef)
+            mb_values = mb_values * coef + adv_values * (1 - coef)
         # If we mixup observations randomly
         elif self.adv_mixup['mode'] == 'random':
             # Randomly generate indices
             seq_ind = np.arange(self.nsteps)
             mix_ind = np.random.permutation(self.nsteps)
             # Do mixup
-            mb_obs = (mb_obs.T * coef).T + (adv_obs[mix_ind].T * (1 - coef)).T
-            mb_values = (mb_values.T * coef).T \
-                    + (adv_values[mix_ind].T * (1 - coef)).T
-            mb_advs = (mb_advs.T * coef).T + (mb_advs[mix_ind].T * (1 - coef)).T
+            mb_obs = mb_obs * coef + adv_obs[mix_ind] * (1 - coef)
+            mb_values = mb_values * coef + adv_values[mix_ind] * (1 - coef)
+            mb_advs = mb_advs * coef + mb_advs[mix_ind] * (1 - coef)
             mb_returns = mb_advs + mb_values
-            mb_neglogpacs = (mb_neglogpacs.T * coef).T \
-                    + (mb_neglogpacs[mix_ind] * (1 - coef)).T
+            mb_neglogpacs = mb_neglogpacs * coef \
+                    + mb_neglogpacs[mix_ind] * (1 - coef)
             # Select actions with higher probabilities
-            ind = np.where(coef > 0.5, seq_ind, mix_ind)
+            ind = np.where(coef.flatten() > 0.5, seq_ind, mix_ind)
             mb_actions = mb_actions[ind]
             # Do nothing to dones (maybe)
             #mb_dones = 
