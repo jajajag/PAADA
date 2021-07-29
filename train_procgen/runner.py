@@ -83,7 +83,7 @@ class RunnerWithAugs(Runner):
         last_values = self.model.value(self.obs, S=self.states, M=self.dones)
 
         # JAG: Copy mb_obs and mb_values
-        adv_obs = mb_obs.copy()
+        adv_obs = mb_obs.copy().astype(np.float32)
         adv_values = mb_values.copy()
 
         # discount/bootstrap off value fn
@@ -134,7 +134,7 @@ class RunnerWithAugs(Runner):
                 # Exit the loop if the gradient is small enough
                 if np.mean(np.abs(grads)) < self.adv_epsilon: break
             # Actually, we compute value again after the last iter
-            adv_values = self.model.value(adv_obs[t])
+            adv_values[t] = self.model.value(adv_obs[t])
 
         mb_returns = mb_advs + mb_values
 
@@ -189,7 +189,7 @@ class RunnerWithAugs(Runner):
             mb_neglogpacs)), mb_states, epinfos)
 
     def mix_multiply(self, mb, adv, coef):
-        for i in range(mb.shape[0]):
+        for i in range(self.nsteps):
             mb[i] = mb[i] * coef[i] + adv[i] * (1 - coef[i])
         return mb
 
