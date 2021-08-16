@@ -57,6 +57,8 @@ def main():
     parser.add_argument('--mix_mode', type=str, default='nomix',
             choices=['nomix', 'mixreg', 'mixobs'])
     parser.add_argument('--mix_alpha', type=float, default=0.2)
+    # JAG: Add second parameter beta to the beta distribution
+    parser.add_argument('--mix_beta', type=float, default=0.2)
 
     # JAG: Parameters for adversarial RL
     # 1. The ending condition for adversarial gradient descent
@@ -198,6 +200,7 @@ def main():
         model_fn=get_mixreg_model(
             mix_mode=args.mix_mode,
             mix_alpha=args.mix_alpha,
+            mix_beta=args.mix_beta,
             use_l2reg=args.use_l2reg,
             l2reg_coeff=args.l2reg_coeff),
         # JAG: Pass adversarial parameters

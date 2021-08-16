@@ -15,11 +15,12 @@ except ImportError:
 
 from .utils import reduce_std
 
-def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2, use_l2reg=False,
-        l2reg_coeff=1e-4, fix_representation=False):
+def get_mixreg_model(mix_mode='nomix', mix_alpha=0.2, mix_beta=0.2,
+        use_l2reg=False, l2reg_coeff=1e-4, fix_representation=False):
     def model_fn(*args, **kwargs):
         kwargs['mix_mode'] = mix_mode
         kwargs['mix_alpha'] = mix_alpha
+        kwargs['mix_beta'] = mix_beta
         kwargs['use_l2reg'] = use_l2reg
         kwargs['l2reg_coeff'] = l2reg_coeff
         kwargs['fix_representation'] = fix_representation
@@ -42,8 +43,8 @@ class MixregModel:
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
                 nsteps, ent_coef, vf_coef, max_grad_norm, mpi_rank_weight=1,
                 comm=None, microbatch_size=None, mix_mode='nomix',
-                mix_alpha=0.2, fix_representation=False, use_l2reg=False,
-                l2reg_coeff=1e-4):
+                mix_alpha=0.2, mix_beta=0.2, fix_representation=False,
+                use_l2reg=False, l2reg_coeff=1e-4):
         self.sess = sess = get_session()
 
         if MPI is not None and comm is None:
@@ -197,6 +198,8 @@ class MixregModel:
 
         self.mix_mode = mix_mode
         self.mix_alpha = mix_alpha
+        # JAG: Add beta parameter
+        self.mix_beta = mix_beta
         self.fix_representation = fix_representation
         self.train_model = train_model
         self.act_model = act_model
@@ -238,8 +241,9 @@ class MixregModel:
         batchsize = len(obs)
         if self.mix_mode in ['mixreg', 'mixobs']:
             # Generate mix coefficients and indices
+            # JAG: Add beta parameter
             coeff = np.random.beta(
-                    self.mix_alpha, self.mix_alpha, size=(batchsize,))
+                    self.mix_alpha, self.mix_beta, size=(batchsize,))
             seq_indices = np.arange(batchsize)
             rand_indices = np.random.permutation(batchsize)
             indices = np.where(coeff > 0.5, seq_indices, rand_indices)

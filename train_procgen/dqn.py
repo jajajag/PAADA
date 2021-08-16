@@ -19,8 +19,8 @@ from .data_augs import Cutout_Color, Rand_Crop
 class MpiDQN:
     def __init__(self, online_net, target_net, discount=0.99,
                  comm=None, mpi_rank_weight=1., log_interval=100,
-                 mix_mode='nomix', mix_alpha=0.2, use_l2reg=False,
-                 data_aug='no_aug'):
+                 mix_mode='nomix', mix_alpha=0.2, mix_beta=0.2,
+                 use_l2reg=False, data_aug='no_aug'):
         """
         Create a Q-learning session.
 
@@ -38,6 +38,7 @@ class MpiDQN:
         self.log_interval = log_interval
         self.mix_mode = mix_mode
         self.mix_alpha = mix_alpha
+        self.mix_beta = mix_beta
         self.use_l2reg = use_l2reg
         self.data_aug = data_aug
 
@@ -107,7 +108,8 @@ class MpiDQN:
         # Feeds for mixreg
         if self.mix_mode == 'mixreg':
             # Generate mix coefficients and indices
-            coeff = np.random.beta(self.mix_alpha, self.mix_alpha, size=(len(transitions),))
+            # JAG: Add beta parameter
+            coeff = np.random.beta(self.mix_alpha, self.mix_beta, size=(len(transitions),))
             seq_indices = np.arange(len(transitions))
             rand_indices = np.random.permutation(len(transitions))
             indices = np.where(coeff > 0.5, seq_indices, rand_indices)

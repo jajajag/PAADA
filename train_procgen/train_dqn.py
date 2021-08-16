@@ -54,6 +54,7 @@ def main():
     parser.add_argument('--mix_mode', type=str, default='nomix',
                         choices=['nomix', 'mixreg'])
     parser.add_argument('--mix_alpha', type=float, default=0.2)
+    parser.add_argument('--mix_beta', type=float, default=0.2)
     parser.add_argument('--use_l2reg', action='store_true')
     parser.add_argument('--data_aug', type=str, default='no_aug',
                         choices=['no_aug', 'cutout_color', 'crop'])
@@ -114,6 +115,7 @@ def main():
     dqn = MpiDQN(online_net, target_net, discount=gamma,
                  comm=comm, mpi_rank_weight=mpi_rank_weight,
                  mix_mode=args.mix_mode, mix_alpha=args.mix_alpha,
+                 mix_beta=args.mix_beta,
                  use_l2reg=args.use_l2reg, data_aug=args.data_aug)
     player = NStepPlayer(VecPlayer(venv, dqn.online_net), nstep_return)
     optimize = dqn.optimize(learning_rate=learning_rate)
