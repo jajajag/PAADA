@@ -80,6 +80,7 @@ def main():
     parser.add_argument('--adv_epochs', type=int, default=500)
     # 8. The parameter for beta distribution of the mixup
     parser.add_argument('--adv_alpha', type=float, default=0.2)
+    parser.add_argument('--adv_beta', type=float, default=0.2)
     # 9. Determine which kind of example is mostly mixuped
     parser.add_argument('--adv_most', type=str, default='random',
             choices=["random", "ori", "adv"])
@@ -91,6 +92,7 @@ def main():
     # Load mixup parameters into a dictionary
     adv_mixup = {
         'alpha': args.adv_alpha,
+        'beta': args.adv_beta,
         'most': args.adv_most,
         'mode': args.adv_mixup
     }

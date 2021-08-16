@@ -143,7 +143,7 @@ class RunnerWithAugs(Runner):
             self.obs = self.aug_func.do_augmentation(obs)
 
         # JAG: Randomly generate coefficient for mixup 
-        coef = np.random.beta(self.adv_mixup['alpha'], self.adv_mixup['alpha'],
+        coef = np.random.beta(self.adv_mixup['alpha'], self.adv_mixup['beta'],
                 size=(self.nsteps,))
         # If we want the most to be adversarial examples
         if self.adv_mixup['most'] == 'ori':
