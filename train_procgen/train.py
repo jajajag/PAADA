@@ -71,6 +71,7 @@ def main():
     parser.add_argument('--adv_thresh', type=int, default=50)
     # 5. If we use evaluation environment
     parser.add_argument('--eval_env', type=bool, default=True)
+    parser.add_argument('--eval_levels', type=int, default=0)
     # 6. The ratio of adversarial augmented data
     # adv = 1 means we replace original data with adversarial data
     # adv = 0 means we do not use adversarial
@@ -132,8 +133,8 @@ def main():
     # JAG: If we use eval_env
     if args.eval_env:
         eval_env = ProcgenEnv(
-                num_envs=num_envs, env_name=env_name, num_levels=num_levels,
-                start_level=start_level,
+                num_envs=num_envs, env_name=env_name,
+                num_levels=args.eval_levels, start_level=start_level,
                 distribution_mode=args.distribution_mode)
         eval_env = VecExtractDictObs(eval_env, "rgb")
         eval_env = VecMonitor(venv=eval_env, filename=None, keep_buf=100)
