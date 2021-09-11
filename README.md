@@ -12,6 +12,9 @@ conda env create --file py37_cu10_tf115.yml
 conda activate paada
 ```
 
-## Experiments & results
+## Experiments
+To train pure PAADA with &nu; = 0.5 augmentation degree on 500 levels generalization and &xi; = 1 Climber environment, you can run
 
-Check out [experiments README](https://github.com/kaixin96/mixreg/blob/master/experiments/README.md) for running different experiments. You may also use the scripts in `experiments` folder to start training. All results are available at [Google Drive](https://drive.google.com/drive/folders/1wTURCswt6IfTDbEkBqMaIZhBlO7n8qDb?usp=sharing).
+```
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --env_name climber --adv_nenv 1 --adv_adv 0.5
+```
