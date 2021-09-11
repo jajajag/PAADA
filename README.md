@@ -18,3 +18,28 @@ To train pure PAADA with &nu; = 0.5 augmentation degree on 500 levels generaliza
 ```
 python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --env_name climber --adv_nenv 1 --adv_adv 0.5
 ```
+
+To train PAADA+Mixup
+
+```
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --e
+nv_name climber --adv_nenv 1 --adv_adv 0.5 --mix_mode mixreg
+```
+
+To train PAADA with different augmentation degree &nu; = 0.5, you can adjust --adv\_adv parameter (--adv\_adv 0) means pure PPO
+```
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --env_name climber --adv_nenv 1 --adv_adv 1
+```
+
+To train PAADA with limited environment &xi; = 0.5 and &xi; = 0.25, run
+```
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --e
+nv_name climber --adv_nenv 0.5 --adv_adv 0.5
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --env_name climber --adv_nenv 0.25 --adv_adv 0.5
+```
+
+To train PAADA+Mixup with different &alpha; and &beta; in Beta distribution B(&alpha;, &beta;), run
+```
+python -m train_procgen.train --num_levels 500 --gpus_id 0 --adv_epochs 3052 --env_name climber --adv_nenv 0.25 --adv_adv 0.5 --mix_alpha 0.2 --mix_beta 1
+```
+
